@@ -55,13 +55,18 @@
 
 	function getOverallStatus(
 		downloadStatus: number[],
-		shouldDownload: boolean
+		shouldDownload: boolean,
+		isPaidVideo: boolean
 	): {
 		text: string;
 		style: string;
 	} {
+		if (isPaidVideo) {
+			// 收费视频，显示为"收费"
+			return { text: '收费', style: 'bg-yellow-600 text-yellow-100' };
+		}
 		if (!shouldDownload) {
-			// 被过滤规则排除，显示为“跳过”
+			// 被过滤规则排除，显示为"跳过"
 			return { text: '跳过', style: 'bg-gray-100 text-gray-700' };
 		}
 		const completed = downloadStatus.filter((status) => status === 7).length;
@@ -69,13 +74,13 @@
 		const failed = downloadStatus.filter((status) => status !== 7 && status !== 0).length;
 
 		if (completed === total) {
-			// 全部完成，显示为“完成”
+			// 全部完成，显示为"完成"
 			return { text: '完成', style: 'bg-emerald-700 text-emerald-100' };
 		} else if (failed > 0) {
-			// 出现了失败，显示为“失败”
+			// 出现了失败，显示为"失败"
 			return { text: '失败', style: 'bg-rose-700 text-rose-100' };
 		} else {
-			// 还未开始，显示为“等待”
+			// 还未开始，显示为"等待"
 			return { text: '等待', style: 'bg-yellow-700 text-yellow-100' };
 		}
 	}
@@ -88,7 +93,7 @@
 		return defaultTaskNames[index] || `任务${index + 1}`;
 	}
 
-	$: overallStatus = getOverallStatus(video.download_status, video.should_download);
+	$: overallStatus = getOverallStatus(video.download_status, video.should_download, video.is_paid_video);
 	$: completed = video.download_status.filter((status) => status === 7).length;
 	$: total = video.download_status.length;
 

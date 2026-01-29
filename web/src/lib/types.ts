@@ -37,6 +37,7 @@ export interface VideoInfo {
 	name: string;
 	upper_name: string;
 	should_download: boolean;
+	is_paid_video: boolean;
 	download_status: [number, number, number, number, number];
 }
 
@@ -105,6 +106,7 @@ export interface UpdateVideoStatusRequest {
 	video_updates?: StatusUpdate[];
 	page_updates?: PageStatusUpdate[];
 	should_download?: boolean;
+	is_paid_video?: boolean;
 }
 
 export interface UpdateFilteredVideoStatusRequest {

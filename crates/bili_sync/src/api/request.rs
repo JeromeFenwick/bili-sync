@@ -89,6 +89,8 @@ pub struct UpdateVideoStatusRequest {
     pub page_updates: Vec<PageStatusUpdate>,
     /// 是否应该下载（用于标记收费视频等，设为 false 后定时任务会跳过）
     pub should_download: Option<bool>,
+    /// 是否为收费视频（标记为收费视频时，should_download 也会被设为 false）
+    pub is_paid_video: Option<bool>,
 }
 
 #[derive(Deserialize, Validate)]

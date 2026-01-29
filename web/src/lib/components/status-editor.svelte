@@ -46,8 +46,8 @@
 	$effect(() => {
 		videoStatuses = [...video.download_status];
 		originalVideoStatuses = [...video.download_status];
-		isPaidVideo = !video.should_download; // should_download=false 表示收费视频
-		originalIsPaidVideo = !video.should_download;
+		isPaidVideo = video.is_paid_video;
+		originalIsPaidVideo = video.is_paid_video;
 
 		if (pages.length > 0) {
 			pageStatuses = pages.reduce(
@@ -164,9 +164,9 @@
 			}
 		});
 
-		// 如果 should_download 有变化，添加到请求中
+		// 如果 is_paid_video 有变化，添加到请求中
 		if (hasShouldDownloadChange()) {
-			request.should_download = !isPaidVideo; // isPaidVideo=true 表示 should_download=false
+			request.is_paid_video = isPaidVideo;
 		}
 
 		return request;
@@ -178,7 +178,7 @@
 			return;
 		}
 		const request = buildRequest();
-		if (!request.video_updates?.length && !request.page_updates?.length && request.should_download === undefined) {
+		if (!request.video_updates?.length && !request.page_updates?.length && request.is_paid_video === undefined) {
 			toast.info('没有状态变更需要提交');
 			return;
 		}

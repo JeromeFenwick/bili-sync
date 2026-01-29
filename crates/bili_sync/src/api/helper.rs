@@ -1,7 +1,8 @@
 use std::borrow::Borrow;
 
 use itertools::Itertools;
-use sea_orm::{Condition, ConnectionTrait, DatabaseTransaction};
+use sea_orm::{ColumnTrait, Condition, ConnectionTrait, DatabaseTransaction};
+use bili_sync_entity::video;
 
 use crate::api::request::StatusFilter;
 use crate::api::response::{PageInfo, SimplePageInfo, SimpleVideoInfo, VideoInfo};
@@ -13,9 +14,16 @@ impl StatusFilter {
         match self {
             Self::Failed => query_builder.failed(),
             Self::Succeeded => query_builder.succeeded(),
-            Self::Waiting => query_builder.waiting(),
-            Self::Skipped => video::Column::ShouldDownload.eq(false),
-            Self::Paid => video::Column::ShouldDownload.eq(false),
+            // 等待状态：排除收费视频
+            Self::Waiting => Condition::all()
+                .add(query_builder.waiting())
+                .add(video::Column::IsPaidVideo.eq(false)),
+            // 仅跳过：筛选所有 should_download=false 且 is_paid_video=false 的视频（不包括收费视频）
+            Self::Skipped => Condition::all()
+                .add(video::Column::ShouldDownload.eq(false))
+                .add(video::Column::IsPaidVideo.eq(false)),
+            // 收费视频：筛选 is_paid_video=true 的视频
+            Self::Paid => Condition::all().add(video::Column::IsPaidVideo.eq(true)),
         }
     }
 }

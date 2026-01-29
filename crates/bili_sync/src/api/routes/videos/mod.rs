@@ -219,6 +219,7 @@ pub async fn clear_and_reset_video_status(
             name: video_info.name,
             upper_name: video_info.upper_name,
             should_download: video_info.should_download,
+            is_paid_video: video_info.is_paid_video,
             download_status: video_info.download_status,
         },
     }))
@@ -344,7 +345,8 @@ pub async fn update_video_status(
     let has_video_updates = !request.video_updates.is_empty();
     let has_page_updates = !updated_pages_info.is_empty();
     let has_should_download_update = request.should_download.is_some();
-    if has_video_updates || has_page_updates || has_should_download_update {
+    let has_is_paid_video_update = request.is_paid_video.is_some();
+    if has_video_updates || has_page_updates || has_should_download_update || has_is_paid_video_update {
         let txn = db.begin().await?;
         if has_video_updates {
             update_video_download_status::<VideoInfo>(&txn, &[&video_info], None).await?;
@@ -352,17 +354,27 @@ pub async fn update_video_status(
         if has_page_updates {
             update_page_download_status::<PageInfo>(&txn, &updated_pages_info, None).await?;
         }
-        if has_should_download_update {
-            let mut video_model = video::Entity::find_by_id(video_info.id)
+        if has_should_download_update || has_is_paid_video_update {
+            let video_model = video::Entity::find_by_id(video_info.id)
                 .one(&txn)
                 .await?
                 .ok_or_else(|| InnerApiError::NotFound(video_info.id))?;
-            video_model.should_download = Set(request.should_download.unwrap());
-            video_model.update(&txn).await?;
+            let mut video_active_model: video::ActiveModel = video_model.into();
+            if let Some(should_download) = request.should_download {
+                video_active_model.should_download = Set(should_download);
+            }
+            if let Some(is_paid_video) = request.is_paid_video {
+                video_active_model.is_paid_video = Set(is_paid_video);
+                // 如果标记为收费视频，同时设置 should_download=false
+                if is_paid_video {
+                    video_active_model.should_download = Set(false);
+                }
+            }
+            video_active_model.update(&txn).await?;
         }
         txn.commit().await?;
         // 重新查询以确保返回最新数据
-        if has_video_updates || has_should_download_update {
+        if has_video_updates || has_should_download_update || has_is_paid_video_update {
             if let Some(updated_video) = video::Entity::find_by_id(video_info.id)
                 .into_partial_model::<VideoInfo>()
                 .one(&db)
@@ -381,7 +393,7 @@ pub async fn update_video_status(
         }
     }
     Ok(ApiResponse::ok(UpdateVideoStatusResponse {
-        success: has_video_updates || has_page_updates || has_should_download_update,
+        success: has_video_updates || has_page_updates || has_should_download_update || has_is_paid_video_update,
         video: video_info,
         pages: pages_info,
     }))

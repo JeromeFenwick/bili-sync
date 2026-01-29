@@ -28,6 +28,7 @@ pub struct Model {
     pub download_status: u32,
     pub valid: bool,
     pub should_download: bool,
+    pub is_paid_video: bool,
     pub tags: Option<StringVec>,
     pub single_page: Option<bool>,
     pub created_at: String,
