@@ -3,6 +3,9 @@ export interface ApiResponse<T> {
 	data: T;
 }
 
+export type VideoSortBy = 'publish_time' | 'subscribe_time' | 'download_time';
+export type VideoSortOrder = 'asc' | 'desc';
+
 export interface VideosRequest {
 	collection?: number;
 	favorite?: number;
@@ -12,6 +15,8 @@ export interface VideosRequest {
 	failed_only?: boolean;
 	page?: number;
 	page_size?: number;
+	sort_by?: VideoSortBy;
+	sort_order?: VideoSortOrder;
 }
 
 export interface VideoSource {
@@ -99,6 +104,7 @@ export interface PageStatusUpdate {
 export interface UpdateVideoStatusRequest {
 	video_updates?: StatusUpdate[];
 	page_updates?: PageStatusUpdate[];
+	should_download?: boolean;
 }
 
 export interface UpdateFilteredVideoStatusRequest {

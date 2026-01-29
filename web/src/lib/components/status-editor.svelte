@@ -11,6 +11,9 @@
 	import StatusTaskCard from './status-task-card.svelte';
 	import type { VideoInfo, PageInfo, StatusUpdate, UpdateVideoStatusRequest } from '$lib/types';
 	import { toast } from 'svelte-sonner';
+	import { Switch } from '$lib/components/ui/switch/index.js';
+	import { Label } from '$lib/components/ui/label/index.js';
+	import DollarSignIcon from '@lucide/svelte/icons/dollar-sign';
 
 	let {
 		open = $bindable(false),
@@ -34,13 +37,17 @@
 
 	let videoStatuses = $state<number[]>([]);
 	let pageStatuses = $state<Record<number, number[]>>({});
+	let isPaidVideo = $state<boolean>(false); // Switch 的 checked 状态：true = 标记为收费视频
 
 	let originalVideoStatuses = $state<number[]>([]);
 	let originalPageStatuses = $state<Record<number, number[]>>({});
+	let originalIsPaidVideo = $state<boolean>(false);
 
 	$effect(() => {
 		videoStatuses = [...video.download_status];
 		originalVideoStatuses = [...video.download_status];
+		isPaidVideo = !video.should_download; // should_download=false 表示收费视频
+		originalIsPaidVideo = !video.should_download;
 
 		if (pages.length > 0) {
 			pageStatuses = pages.reduce(
@@ -89,6 +96,7 @@
 
 	function resetAllStatuses() {
 		videoStatuses = [...originalVideoStatuses];
+		isPaidVideo = originalIsPaidVideo;
 		if (pages.length > 0) {
 			pageStatuses = pages.reduce(
 				(acc, page) => {
@@ -114,8 +122,12 @@
 		});
 	}
 
+	function hasShouldDownloadChange(): boolean {
+		return isPaidVideo !== originalIsPaidVideo;
+	}
+
 	// 使用 $derived 创建派生状态
-	let hasAnyChanges = $derived(hasVideoChanges() || hasPageChanges());
+	let hasAnyChanges = $derived(hasVideoChanges() || hasPageChanges() || hasShouldDownloadChange());
 
 	function buildRequest(): UpdateVideoStatusRequest {
 		const request: UpdateVideoStatusRequest = {};
@@ -152,6 +164,11 @@
 			}
 		});
 
+		// 如果 should_download 有变化，添加到请求中
+		if (hasShouldDownloadChange()) {
+			request.should_download = !isPaidVideo; // isPaidVideo=true 表示 should_download=false
+		}
+
 		return request;
 	}
 
@@ -161,7 +178,7 @@
 			return;
 		}
 		const request = buildRequest();
-		if (!request.video_updates?.length && !request.page_updates?.length) {
+		if (!request.video_updates?.length && !request.page_updates?.length && request.should_download === undefined) {
 			toast.info('没有状态变更需要提交');
 			return;
 		}
@@ -198,6 +215,34 @@
 								/>
 							{/each}
 						</div>
+					</div>
+					<!-- 收费视频标记 -->
+					<div class="bg-card mt-4 rounded-lg border p-4">
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-3">
+								<DollarSignIcon class="text-muted-foreground h-5 w-5" />
+								<div>
+									<Label for="should-download" class="text-sm font-medium">
+										标记为收费视频
+									</Label>
+									<p class="text-muted-foreground text-xs">
+										设为收费视频后，定时任务将跳过此视频的下载
+									</p>
+								</div>
+							</div>
+							<Switch
+								id="should-download"
+								bind:checked={isPaidVideo}
+								disabled={loading}
+							/>
+						</div>
+						{#if isPaidVideo !== originalIsPaidVideo}
+							<div class="text-muted-foreground mt-2 text-xs">
+								{isPaidVideo
+									? '已标记为收费视频，定时任务将跳过此视频'
+									: '已取消收费视频标记，视频将正常下载'}
+							</div>
+						{/if}
 					</div>
 				</div>
 

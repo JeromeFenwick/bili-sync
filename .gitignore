@@ -5,3 +5,15 @@ debug*
 node_modules
 docs/.vitepress/cache
 docs/.vitepress/dist
+
+*.yml
+Dockerfile.local
+*.bat
+*.sh
+
+bili-sync-config
+bili-sync-config/*
+
+*.tar.gz
+NAS*.md
+*.tar

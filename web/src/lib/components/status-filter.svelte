@@ -4,6 +4,8 @@
 	import ClockIcon from '@lucide/svelte/icons/clock';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import TrashIcon from '@lucide/svelte/icons/trash';
+	import SkipForwardIcon from '@lucide/svelte/icons/skip-forward';
+	import DollarSignIcon from '@lucide/svelte/icons/dollar-sign';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { type StatusFilterValue } from '$lib/stores/filter';
@@ -38,6 +40,16 @@
 			value: 'waiting' as const,
 			label: '仅等待',
 			icon: ClockIcon
+		},
+		{
+			value: 'skipped' as const,
+			label: '仅跳过',
+			icon: SkipForwardIcon
+		},
+		{
+			value: 'paid' as const,
+			label: '收费视频',
+			icon: DollarSignIcon
 		}
 	];
 

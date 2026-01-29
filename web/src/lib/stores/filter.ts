@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
+import type { VideoSortBy, VideoSortOrder } from '$lib/types';
 
-export type StatusFilterValue = 'failed' | 'succeeded' | 'waiting' | null;
+export type StatusFilterValue = 'failed' | 'succeeded' | 'waiting' | 'skipped' | 'paid' | null;
 
 export interface AppState {
 	query: string;
@@ -10,17 +11,22 @@ export interface AppState {
 		id: string;
 	} | null;
 	statusFilter: StatusFilterValue | null;
+	sortBy: VideoSortBy;
+	sortOrder: VideoSortOrder;
 }
 
 export const appStateStore = writable<AppState>({
 	query: '',
 	currentPage: 0,
 	videoSource: null,
-	statusFilter: null
+	statusFilter: null,
+	// 默认按下载时间倒序
+	sortBy: 'download_time',
+	sortOrder: 'desc'
 });
 
 export const ToQuery = (state: AppState): string => {
-	const { query, videoSource, currentPage, statusFilter } = state;
+	const { query, videoSource, currentPage, statusFilter, sortBy, sortOrder } = state;
 	const params = new URLSearchParams();
 	if (currentPage > 0) {
 		params.set('page', String(currentPage));
@@ -33,6 +39,12 @@ export const ToQuery = (state: AppState): string => {
 	}
 	if (statusFilter) {
 		params.set('status_filter', statusFilter);
+	}
+	if (sortBy) {
+		params.set('sort_by', sortBy);
+	}
+	if (sortOrder) {
+		params.set('sort_order', sortOrder);
 	}
 	const queryString = params.toString();
 	return queryString ? `videos?${queryString}` : 'videos';
@@ -109,12 +121,16 @@ export const setAll = (
 	query: string,
 	currentPage: number,
 	videoSource: { type: string; id: string } | null,
-	statusFilter: StatusFilterValue | null
+	statusFilter: StatusFilterValue | null,
+	sortBy: VideoSortBy,
+	sortOrder: VideoSortOrder
 ) => {
 	appStateStore.set({
 		query,
 		currentPage,
 		videoSource,
-		statusFilter
+		statusFilter,
+		sortBy,
+		sortOrder
 	});
 };

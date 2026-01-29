@@ -7,15 +7,15 @@ use axum::{Json, Router};
 use bili_sync_entity::*;
 use sea_orm::ActiveValue::Set;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
-    QueryOrder, TransactionTrait, TryIntoModel,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, IntoActiveModel, Order, PaginatorTrait,
+    QueryFilter, QueryOrder, TransactionTrait, TryIntoModel,
 };
 
 use crate::api::error::InnerApiError;
 use crate::api::helper::{update_page_download_status, update_video_download_status};
 use crate::api::request::{
-    ResetFilteredVideoStatusRequest, ResetVideoStatusRequest, UpdateFilteredVideoStatusRequest,
-    UpdateVideoStatusRequest, VideosRequest,
+    ResetFilteredVideoStatusRequest, ResetVideoStatusRequest, SortOrder, UpdateFilteredVideoStatusRequest,
+    UpdateVideoStatusRequest, VideoSortBy, VideosRequest,
 };
 use crate::api::response::{
     ClearAndResetVideoStatusResponse, PageInfo, ResetFilteredVideosResponse, ResetVideoResponse, SimplePageInfo,
@@ -71,13 +71,38 @@ pub async fn get_videos(
     } else {
         (0, 10)
     };
+
+    // 排序逻辑：
+    // - 如果显式指定 sort_by / sort_order，则按指定排序；
+    // - 否则：
+    //   - 如果存在来源筛选（收藏夹 / 合集 / 投稿 / 稍后再看），默认按订阅时间倒序；
+    //   - 否则默认按下载时间倒序。
+    let has_source_filter = params.collection.is_some()
+        || params.favorite.is_some()
+        || params.submission.is_some()
+        || params.watch_later.is_some();
+
+    let sort_by = params
+        .sort_by
+        .unwrap_or(if has_source_filter { VideoSortBy::SubscribeTime } else { VideoSortBy::DownloadTime });
+    let sort_order = params.sort_order.unwrap_or(SortOrder::Desc);
+
+    let order_column = match sort_by {
+        VideoSortBy::PublishTime => video::Column::Pubtime,
+        VideoSortBy::SubscribeTime => video::Column::Favtime,
+        VideoSortBy::DownloadTime => video::Column::CreatedAt,
+    };
+
+    query = query.order_by(
+        order_column,
+        match sort_order {
+            SortOrder::Asc => Order::Asc,
+            SortOrder::Desc => Order::Desc,
+        },
+    );
+
     Ok(ApiResponse::ok(VideosResponse {
-        videos: query
-            .order_by_desc(video::Column::Id)
-            .into_partial_model::<VideoInfo>()
-            .paginate(&db, page_size)
-            .fetch_page(page)
-            .await?,
+        videos: query.into_partial_model::<VideoInfo>().paginate(&db, page_size).fetch_page(page).await?,
         total_count,
     }))
 }
@@ -318,7 +343,8 @@ pub async fn update_video_status(
     }
     let has_video_updates = !request.video_updates.is_empty();
     let has_page_updates = !updated_pages_info.is_empty();
-    if has_video_updates || has_page_updates {
+    let has_should_download_update = request.should_download.is_some();
+    if has_video_updates || has_page_updates || has_should_download_update {
         let txn = db.begin().await?;
         if has_video_updates {
             update_video_download_status::<VideoInfo>(&txn, &[&video_info], None).await?;
@@ -326,10 +352,36 @@ pub async fn update_video_status(
         if has_page_updates {
             update_page_download_status::<PageInfo>(&txn, &updated_pages_info, None).await?;
         }
+        if has_should_download_update {
+            let mut video_model = video::Entity::find_by_id(video_info.id)
+                .one(&txn)
+                .await?
+                .ok_or_else(|| InnerApiError::NotFound(video_info.id))?;
+            video_model.should_download = Set(request.should_download.unwrap());
+            video_model.update(&txn).await?;
+        }
         txn.commit().await?;
+        // 重新查询以确保返回最新数据
+        if has_video_updates || has_should_download_update {
+            if let Some(updated_video) = video::Entity::find_by_id(video_info.id)
+                .into_partial_model::<VideoInfo>()
+                .one(&db)
+                .await?
+            {
+                video_info = updated_video;
+            }
+        }
+        if has_page_updates {
+            pages_info = page::Entity::find()
+                .filter(page::Column::VideoId.eq(video_info.id))
+                .order_by_asc(page::Column::Cid)
+                .into_partial_model::<PageInfo>()
+                .all(&db)
+                .await?;
+        }
     }
     Ok(ApiResponse::ok(UpdateVideoStatusResponse {
-        success: has_video_updates || has_page_updates,
+        success: has_video_updates || has_page_updates || has_should_download_update,
         video: video_info,
         pages: pages_info,
     }))

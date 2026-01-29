@@ -10,6 +10,26 @@ pub enum StatusFilter {
     Failed,
     Succeeded,
     Waiting,
+    Skipped,
+    Paid,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VideoSortBy {
+    /// 按投稿时间排序
+    PublishTime,
+    /// 按订阅时间（收藏 / 稍后再看 / 关注时间）排序
+    SubscribeTime,
+    /// 按下载入库时间排序
+    DownloadTime,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SortOrder {
+    Asc,
+    Desc,
 }
 
 #[derive(Deserialize)]
@@ -22,6 +42,8 @@ pub struct VideosRequest {
     pub status_filter: Option<StatusFilter>,
     pub page: Option<u64>,
     pub page_size: Option<u64>,
+    pub sort_by: Option<VideoSortBy>,
+    pub sort_order: Option<SortOrder>,
 }
 
 #[derive(Deserialize)]
@@ -65,6 +87,8 @@ pub struct UpdateVideoStatusRequest {
     #[serde(default)]
     #[validate(nested)]
     pub page_updates: Vec<PageStatusUpdate>,
+    /// 是否应该下载（用于标记收费视频等，设为 false 后定时任务会跳过）
+    pub should_download: Option<bool>,
 }
 
 #[derive(Deserialize, Validate)]

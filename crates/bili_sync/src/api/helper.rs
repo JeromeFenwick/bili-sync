@@ -14,6 +14,8 @@ impl StatusFilter {
             Self::Failed => query_builder.failed(),
             Self::Succeeded => query_builder.succeeded(),
             Self::Waiting => query_builder.waiting(),
+            Self::Skipped => video::Column::ShouldDownload.eq(false),
+            Self::Paid => video::Column::ShouldDownload.eq(false),
         }
     }
 }

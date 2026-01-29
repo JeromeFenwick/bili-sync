@@ -5,6 +5,7 @@
 	import ChartPieIcon from '@lucide/svelte/icons/chart-pie';
 	import HeartIcon from '@lucide/svelte/icons/heart';
 	import FoldersIcon from '@lucide/svelte/icons/folders';
+	import ClockIcon from '@lucide/svelte/icons/clock';
 	import UserIcon from '@lucide/svelte/icons/user';
 	import Settings2Icon from '@lucide/svelte/icons/settings-2';
 	import SquareTerminalIcon from '@lucide/svelte/icons/square-terminal';
@@ -58,6 +59,11 @@
 			{
 				category: '快捷订阅',
 				items: [
+					{
+						title: '稍后再看',
+						icon: ClockIcon,
+						href: '/videos?watch_later=1'
+					},
 					{
 						title: '我创建的收藏夹',
 						icon: HeartIcon,

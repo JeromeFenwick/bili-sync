@@ -13,7 +13,9 @@
 		VideoSourcesResponse,
 		ApiError,
 		VideoSource,
-		UpdateFilteredVideoStatusRequest
+		UpdateFilteredVideoStatusRequest,
+		VideoSortBy,
+		VideoSortOrder
 	} from '$lib/types';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
@@ -55,6 +57,11 @@
 
 	let videoSources: VideoSourcesResponse | null = null;
 	let filters: Record<string, Filter> | null = null;
+const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
+	{ value: 'download_time', label: '按下载时间' },
+	{ value: 'subscribe_time', label: '按订阅时间' },
+	{ value: 'publish_time', label: '按投稿时间' }
+];
 
 	function getApiParams(searchParams: URLSearchParams) {
 		let videoSource = null;
@@ -69,14 +76,30 @@
 		const statusFilter: StatusFilterValue | null =
 			statusFilterParam === 'failed' ||
 			statusFilterParam === 'succeeded' ||
-			statusFilterParam === 'waiting'
+			statusFilterParam === 'waiting' ||
+			statusFilterParam === 'skipped' ||
+			statusFilterParam === 'paid'
 				? statusFilterParam
 				: null;
+		const hasSourceFilter = !!videoSource;
+
+		let sortBy = searchParams.get('sort_by') as VideoSortBy | null;
+		let sortOrder = searchParams.get('sort_order') as VideoSortOrder | null;
+
+		if (!sortBy) {
+			sortBy = hasSourceFilter ? 'subscribe_time' : 'download_time';
+		}
+		if (!sortOrder) {
+			sortOrder = 'desc';
+		}
+
 		return {
 			query: searchParams.get('query') || '',
 			videoSource,
 			statusFilter,
-			pageNum: parseInt(searchParams.get('page') || '0')
+			pageNum: parseInt(searchParams.get('page') || '0'),
+			sortBy,
+			sortOrder
 		};
 	}
 
@@ -84,7 +107,9 @@
 		query: string,
 		pageNum: number = 0,
 		filter?: { type: string; id: string } | null,
-		statusFilter: StatusFilterValue | null = null
+		statusFilter: StatusFilterValue | null = null,
+		sortBy: VideoSortBy = 'download_time',
+		sortOrder: VideoSortOrder = 'desc'
 	) {
 		loading = true;
 		try {
@@ -100,6 +125,12 @@
 			}
 			if (statusFilter) {
 				params.status_filter = statusFilter;
+			}
+			if (sortBy) {
+				params.sort_by = sortBy;
+			}
+			if (sortOrder) {
+				params.sort_order = sortOrder;
 			}
 			const result = await api.getVideos(params);
 			videosData = result.data;
@@ -119,9 +150,10 @@
 	}
 
 	async function handleSearchParamsChange(searchParams: URLSearchParams) {
-		const { query, videoSource, pageNum, statusFilter } = getApiParams(searchParams);
-		setAll(query, pageNum, videoSource, statusFilter);
-		loadVideos(query, pageNum, videoSource, statusFilter);
+		const { query, videoSource, pageNum, statusFilter, sortBy, sortOrder } =
+			getApiParams(searchParams);
+		setAll(query, pageNum, videoSource, statusFilter, sortBy, sortOrder);
+		loadVideos(query, pageNum, videoSource, statusFilter, sortBy, sortOrder);
 	}
 
 	async function handleResetVideo(id: number, forceReset: boolean) {
@@ -132,8 +164,9 @@
 				toast.success('重置成功', {
 					description: `视频「${data.video.name}」已重置`
 				});
-				const { query, currentPage, videoSource, statusFilter } = $appStateStore;
-				await loadVideos(query, currentPage, videoSource, statusFilter);
+				const { query, currentPage, videoSource, statusFilter, sortBy, sortOrder } =
+					$appStateStore;
+				await loadVideos(query, currentPage, videoSource, statusFilter, sortBy, sortOrder);
 			} else {
 				toast.info('重置无效', {
 					description: `视频「${data.video.name}」没有失败的状态，无需重置`
@@ -160,8 +193,9 @@
 					description: `视频「${data.video.name}」已清空重置`
 				});
 			}
-			const { query, currentPage, videoSource, statusFilter } = $appStateStore;
-			await loadVideos(query, currentPage, videoSource, statusFilter);
+			const { query, currentPage, videoSource, statusFilter, sortBy, sortOrder } =
+				$appStateStore;
+			await loadVideos(query, currentPage, videoSource, statusFilter, sortBy, sortOrder);
 		} catch (error) {
 			console.error('清空重置失败：', error);
 			toast.error('清空重置失败', {
@@ -184,8 +218,9 @@
 				toast.success('重置成功', {
 					description: `已重置 ${data.resetted_videos_count} 个视频和 ${data.resetted_pages_count} 个分页`
 				});
-				const { query, currentPage, videoSource, statusFilter } = $appStateStore;
-				await loadVideos(query, currentPage, videoSource, statusFilter);
+				const { query, currentPage, videoSource, statusFilter, sortBy, sortOrder } =
+					$appStateStore;
+				await loadVideos(query, currentPage, videoSource, statusFilter, sortBy, sortOrder);
 			} else {
 				toast.info('没有需要重置的视频');
 			}
@@ -215,8 +250,9 @@
 				toast.success('更新成功', {
 					description: `已更新 ${data.updated_videos_count} 个视频和 ${data.updated_pages_count} 个分页`
 				});
-				const { query, currentPage, videoSource, statusFilter } = $appStateStore;
-				await loadVideos(query, currentPage, videoSource, statusFilter);
+				const { query, currentPage, videoSource, statusFilter, sortBy, sortOrder } =
+					$appStateStore;
+				await loadVideos(query, currentPage, videoSource, statusFilter, sortBy, sortOrder);
 			} else {
 				toast.info('没有视频被更新');
 			}
@@ -254,7 +290,9 @@
 			const statusLabels = {
 				failed: '仅失败',
 				succeeded: '仅成功',
-				waiting: '仅等待'
+				waiting: '仅等待',
+				skipped: '仅跳过',
+				paid: '收费视频'
 			};
 			parts.push(`状态：${statusLabels[state.statusFilter]}`);
 		}
@@ -338,14 +376,47 @@
 				{filters}
 				selectedLabel={$appStateStore.videoSource}
 				onSelect={(type, id) => {
-					setAll('', 0, { type, id }, $appStateStore.statusFilter);
+					setAll('', 0, { type, id }, $appStateStore.statusFilter, $appStateStore.sortBy, $appStateStore.sortOrder);
 					goto(`/${ToQuery($appStateStore)}`);
 				}}
 				onRemove={() => {
-					setAll('', 0, null, $appStateStore.statusFilter);
+					setAll('', 0, null, $appStateStore.statusFilter, $appStateStore.sortBy, $appStateStore.sortOrder);
 					goto(`/${ToQuery($appStateStore)}`);
 				}}
 			/>
+		</div>
+		<!-- 排序选择 -->
+		<div class="flex items-center gap-1">
+			<span class="text-muted-foreground text-xs">排序:</span>
+			<select
+				class="border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground h-8 cursor-pointer rounded-md border px-2 text-xs outline-none"
+				bind:value={$appStateStore.sortBy}
+				on:change={() => {
+					resetCurrentPage();
+					goto(`/${ToQuery($appStateStore)}`);
+				}}
+			>
+				{#each SORT_OPTIONS as option}
+					<option value={option.value}>{option.label}</option>
+				{/each}
+			</select>
+			<Button
+				size="icon"
+				variant="outline"
+				class="hover:bg-accent hover:text-accent-foreground h-8 w-8"
+				onclick={() => {
+					appStateStore.update((state) => ({
+						...state,
+						sortOrder: state.sortOrder === 'desc' ? 'asc' : 'desc',
+						currentPage: 0
+					}));
+					goto(`/${ToQuery($appStateStore)}`);
+				}}
+			>
+				<span class="text-xs">
+					{$appStateStore.sortOrder === 'desc' ? '↓' : '↑'}
+				</span>
+			</Button>
 		</div>
 	</div>
 </div>

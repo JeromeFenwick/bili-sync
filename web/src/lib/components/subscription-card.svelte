@@ -10,12 +10,18 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import XIcon from '@lucide/svelte/icons/x';
-	import type { Followed } from '$lib/types';
+import type { Followed, VideoSourcesResponse, VideoSource } from '$lib/types';
+import api from '$lib/api';
+import { goto } from '$app/navigation';
+import { toast } from 'svelte-sonner';
+import { onMount } from 'svelte';
 
-	export let item: Followed;
-	export let onSubscriptionSuccess: (() => void) | null = null;
+export let item: Followed;
+export let onSubscriptionSuccess: (() => void) | null = null;
 
-	let dialogOpen = false;
+let dialogOpen = false;
+let videoSources: VideoSourcesResponse | null = null;
+let cachedCount: number | null = null;
 
 	function getIcon() {
 		switch (item.type) {
@@ -129,6 +135,96 @@
 		}
 	}
 
+	async function ensureVideoSources() {
+		if (!videoSources) {
+			const resp = await api.getVideoSources();
+			videoSources = resp.data;
+		}
+	}
+
+	async function resolveVideoSource():
+		Promise<{ paramKey: 'favorite' | 'collection' | 'submission'; id: number } | null> {
+		await ensureVideoSources();
+		if (!videoSources) {
+			return null;
+		}
+
+		let list: VideoSource[] | undefined;
+		let paramKey: 'favorite' | 'collection' | 'submission';
+		let matchName: string;
+
+		if (item.type === 'favorite') {
+			list = videoSources.favorite;
+			paramKey = 'favorite';
+			matchName = getTitle();
+		} else if (item.type === 'collection') {
+			list = videoSources.collection;
+			paramKey = 'collection';
+			matchName = getTitle();
+		} else if (item.type === 'upper') {
+			list = videoSources.submission;
+			paramKey = 'submission';
+			matchName = item.uname;
+		} else {
+			return null;
+		}
+
+		// 先尝试精确匹配名称，若失败，对于合集再尝试模糊匹配，
+		// 兼容“我追的合集 / 收藏夹”和“视频源”中名称存在细微差异的情况。
+		let source = list.find((s) => s.name === matchName);
+		if (!source && item.type === 'collection') {
+			source = list.find(
+				(s) => s.name.includes(matchName) || matchName.includes(s.name)
+			);
+		}
+		if (!source) {
+			return null;
+		}
+
+		return { paramKey, id: source.id };
+	}
+
+	onMount(async () => {
+		// 收藏夹 / 合集 / UP 投稿：尝试预取“已缓存数量”
+		if (item.type === 'favorite' || item.type === 'collection' || item.type === 'upper') {
+			try {
+				const resolved = await resolveVideoSource();
+				if (!resolved) return;
+				const { paramKey, id } = resolved;
+				const params: Record<string, string | number> = {
+					page: 0,
+					page_size: 1,
+					status_filter: 'succeeded'
+				};
+				params[paramKey] = id;
+				const res = await api.getVideos(params);
+				cachedCount = res.data.total_count;
+			} catch {
+				cachedCount = null;
+			}
+		}
+	});
+
+	async function handleDrilldown() {
+		try {
+			const resolved = await resolveVideoSource();
+			if (!resolved) {
+				toast.info('尚未为该条目创建对应的视频源或尚未启用');
+				return;
+			}
+			const { paramKey, id } = resolved;
+
+			const params = new URLSearchParams();
+			params.set(paramKey, String(id));
+			goto(`/videos?${params.toString()}`);
+		} catch (error) {
+			console.error('查看视频失败：', error);
+			toast.error('查看视频失败', {
+				description: '获取视频源信息时出错，请稍后再试'
+			});
+		}
+	}
+
 	const Icon = getIcon();
 	const typeLabel = getTypeLabel();
 	const title = getTitle();
@@ -197,10 +293,16 @@
 				{/if}
 
 				<!-- 计数信息 -->
-				{#if count !== null && !disabled}
+				{#if !disabled && (count !== null || cachedCount !== null)}
 					<div class="text-muted-foreground flex items-center gap-1 text-sm">
 						<VideoIcon class="h-3 w-3 shrink-0" />
-						<span class="truncate">视频数：{count}</span>
+						{#if count !== null && cachedCount !== null}
+							<span class="truncate">视频数：{cachedCount}/{count}</span>
+						{:else if cachedCount !== null}
+							<span class="truncate">已缓存：{cachedCount}</span>
+						{:else}
+							<span class="truncate">视频数：{count}</span>
+						{/if}
 					</div>
 				{/if}
 
@@ -228,10 +330,20 @@
 					{disabledReason}
 				</Button>
 			{:else if subscribed}
-				<Button size="sm" variant="outline" disabled class="h-8 cursor-not-allowed text-xs">
-					<CheckIcon class="mr-1 h-3 w-3" />
-					已订阅
-				</Button>
+				<div class="flex items-center gap-2">
+					<Button
+						size="sm"
+						variant="secondary"
+						onclick={handleDrilldown}
+						class="h-8 cursor-pointer text-xs font-medium"
+					>
+						查看视频
+					</Button>
+					<Button size="sm" variant="outline" disabled class="h-8 cursor-not-allowed text-xs">
+						<CheckIcon class="mr-1 h-3 w-3" />
+						已订阅
+					</Button>
+				</div>
 			{:else}
 				<Button
 					size="sm"
