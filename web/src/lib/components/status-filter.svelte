@@ -28,27 +28,27 @@
 	const statusOptions = [
 		{
 			value: 'failed' as const,
-			label: '仅失败',
+			label: '失败',
 			icon: XCircleIcon
 		},
 		{
 			value: 'succeeded' as const,
-			label: '仅成功',
+			label: '成功',
 			icon: CheckCircleIcon
 		},
 		{
 			value: 'waiting' as const,
-			label: '仅等待',
+			label: '等待',
 			icon: ClockIcon
 		},
 		{
 			value: 'skipped' as const,
-			label: '仅跳过',
+			label: '跳过',
 			icon: SkipForwardIcon
 		},
 		{
 			value: 'paid' as const,
-			label: '收费视频',
+			label: '收费',
 			icon: DollarSignIcon
 		}
 	];

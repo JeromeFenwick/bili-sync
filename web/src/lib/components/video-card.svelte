@@ -34,6 +34,9 @@
 	export let resetting = false;
 	export let clearAndResetting = false;
 	export let onRetry: ((videoId: number, taskIndex: number, isPage: boolean) => Promise<void>) | null = null; // 自定义重试函数
+	export let isSelectionMode: boolean = false; // 是否处于批量编辑模式
+	export let isSelected: boolean = false; // 是否被选中
+	export let onToggleSelection: (() => void) | null = null; // 切换选择状态的回调
 
 	let forceReset = false;
 	let retryingTaskIndex: number | null = null; // 正在重试的任务索引
@@ -258,11 +261,33 @@
 	$: displaySubtitle = customSubtitle || video.upper_name;
 	$: cardClasses =
 		mode === 'default'
-			? 'group flex h-[250px] min-w-0 flex-col transition-all hover:shadow-lg hover:shadow-primary/5 border-border/50'
-			: 'transition-all hover:shadow-lg border-border/50';
+			? `group flex h-[250px] min-w-0 flex-col transition-all hover:shadow-lg hover:shadow-primary/5 border-border/50 ${
+					isSelectionMode ? (isSelected ? 'ring-2 ring-primary' : 'cursor-pointer') : ''
+				}`
+			: `transition-all hover:shadow-lg border-border/50 ${
+					isSelectionMode ? (isSelected ? 'ring-2 ring-primary' : 'cursor-pointer') : ''
+				}`;
+
+	function handleCardClick(e: MouseEvent) {
+		// 在批量编辑模式下，点击卡片切换选择状态
+		if (isSelectionMode && onToggleSelection) {
+			// 检查点击的目标是否是按钮或链接，如果是则不触发选择切换
+			const target = e.target as HTMLElement;
+			if (
+				target.closest('button') ||
+				target.closest('a') ||
+				target.closest('[role="button"]') ||
+				target.closest('.dropdown-menu') ||
+				target.closest('.alert-dialog')
+			) {
+				return;
+			}
+			onToggleSelection();
+		}
+	}
 </script>
 
-<Card class={cardClasses}>
+<Card class={cardClasses} onclick={handleCardClick}>
 	<CardHeader class="shrink-0 pb-3">
 		<div class="flex min-w-0 items-start justify-between gap-3">
 			<CardTitle
@@ -302,7 +327,7 @@
 						<span class="shrink-0">{completed}/{total}</span>
 					</div>
 					<!-- 进度条 -->
-					<div class="flex w-full gap-0.5">
+					<div class="flex w-full gap-0.5" onclick={(e) => e.stopPropagation()}>
 						{#each video.download_status as status, index (index)}
 							<Tooltip.Root>
 								<Tooltip.Trigger class="flex-1">
@@ -312,7 +337,10 @@
 										)} {retryingTaskIndex === index
 											? 'opacity-50 cursor-wait'
 											: 'cursor-pointer hover:opacity-80'}"
-										onclick={() => handleRetryTaskClick(index)}
+										onclick={(e) => {
+											e.stopPropagation();
+											handleRetryTaskClick(index);
+										}}
 										role="button"
 										tabindex="0"
 										onkeydown={(e) => {
@@ -336,7 +364,7 @@
 			{/if}
 
 			{#if showActions && mode === 'default'}
-				<div class="flex min-w-0 gap-2 pt-1">
+				<div class="flex min-w-0 gap-2 pt-1" onclick={(e) => e.stopPropagation()}>
 					<Button
 						size="sm"
 						variant="outline"

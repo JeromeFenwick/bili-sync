@@ -14,11 +14,12 @@ impl StatusFilter {
         match self {
             Self::Failed => query_builder.failed(),
             Self::Succeeded => query_builder.succeeded(),
-            // 等待状态：排除收费视频
+            // 等待状态：should_download=true 且 is_paid_video=false 且所有任务状态都是未开始
             Self::Waiting => Condition::all()
                 .add(query_builder.waiting())
+                .add(video::Column::ShouldDownload.eq(true))
                 .add(video::Column::IsPaidVideo.eq(false)),
-            // 仅跳过：筛选所有 should_download=false 且 is_paid_video=false 的视频（不包括收费视频）
+            // 跳过状态：should_download=false 且 is_paid_video=false 的视频（不包括收费视频）
             Self::Skipped => Condition::all()
                 .add(video::Column::ShouldDownload.eq(false))
                 .add(video::Column::IsPaidVideo.eq(false)),

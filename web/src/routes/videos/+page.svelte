@@ -532,7 +532,7 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 			<select
 				class="border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground h-8 cursor-pointer rounded-md border px-2 text-xs outline-none"
 				bind:value={$appStateStore.sortBy}
-				on:change={() => {
+				onchange={() => {
 					resetCurrentPage();
 					goto(`/${ToQuery($appStateStore)}`);
 				}}
@@ -670,7 +670,7 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 		{#each videosData.videos as video (video.id)}
 			<div class="relative">
 				{#if isSelectionMode}
-					<div class="absolute left-2 top-2 z-10">
+					<div class="absolute left-2 top-2 z-10" onclick={(e) => e.stopPropagation()}>
 						<Checkbox
 							checked={selectedVideoIds.has(video.id)}
 							onCheckedChange={() => toggleVideoSelection(video.id)}
@@ -680,6 +680,9 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 				{/if}
 				<VideoCard
 					{video}
+					{isSelectionMode}
+					isSelected={selectedVideoIds.has(video.id)}
+					onToggleSelection={() => toggleVideoSelection(video.id)}
 					onReset={async (forceReset: boolean) => {
 						await handleResetVideo(video.id, forceReset);
 					}}
