@@ -238,7 +238,7 @@ let cachedCount: number | null = null;
 </script>
 
 <Card
-	class="hover:shadow-primary/5 border-border/50 group flex h-full flex-col transition-all hover:shadow-lg {disabled
+	class="hover:shadow-primary/5 border-border/50 group flex h-[200px] flex-col transition-all hover:shadow-lg {disabled
 		? 'opacity-60'
 		: ''}"
 >

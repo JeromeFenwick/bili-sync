@@ -13,7 +13,7 @@
 	let currentPage = 0;
 	let loading = false;
 
-	const pageSize = 50;
+	const pageSize = 25;
 
 	async function loadCollections(page: number = 0) {
 		loading = true;
@@ -77,12 +77,10 @@
 		</div>
 	{:else if collections.length > 0}
 		<div
-			style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; width: 100%; max-width: none; justify-items: start;"
+			style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; width: 100%;"
 		>
 			{#each collections as collection (getFollowedKey(collection))}
-				<div style="max-width: 450px; width: 100%;">
-					<SubscriptionCard item={collection} onSubscriptionSuccess={handleSubscriptionSuccess} />
-				</div>
+				<SubscriptionCard item={collection} onSubscriptionSuccess={handleSubscriptionSuccess} />
 			{/each}
 		</div>
 

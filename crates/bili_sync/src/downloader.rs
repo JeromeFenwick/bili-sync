@@ -15,6 +15,7 @@ use tokio_util::io::StreamReader;
 
 use crate::bilibili::Client;
 use crate::config::ConcurrentDownloadLimit;
+use tracing;
 
 pub struct Downloader {
     client: Client,
@@ -33,9 +34,17 @@ impl Downloader {
         self.fetch_internal(url, &mut temp_file, false, concurrent_download)
             .await?;
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).await?;
+            fs::create_dir_all(parent).await
+                .map_err(|e| {
+                    tracing::error!("创建父目录失败 {}: {}", parent.display(), e);
+                    e
+                })?;
         }
-        fs::copy(temp_file.file_path(), path).await?;
+        fs::copy(temp_file.file_path(), path).await
+            .map_err(|e| {
+                tracing::error!("复制文件失败 {}: {}", path.display(), e);
+                e
+            })?;
         // temp_file 的 drop 需要 std::fs::remove_file
         // 如果交由 rust 自动执行虽然逻辑正确但会略微阻塞异步上下文
         // 尽量主动调用，保证正常执行的情况下文件清除操作由 spawn_blocking 在专门线程中完成

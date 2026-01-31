@@ -101,12 +101,19 @@ pub struct UpdateFilteredVideoStatusRequest {
     pub watch_later: Option<i32>,
     pub query: Option<String>,
     pub status_filter: Option<StatusFilter>,
+    /// 直接指定要更新的视频ID列表（用于批量选择操作）
+    #[serde(default)]
+    pub video_ids: Option<Vec<i32>>,
     #[serde(default)]
     #[validate(nested)]
     pub video_updates: Vec<StatusUpdate>,
     #[serde(default)]
     #[validate(nested)]
     pub page_updates: Vec<StatusUpdate>,
+    /// 是否应该下载（用于标记收费视频等，设为 false 后定时任务会跳过）
+    pub should_download: Option<bool>,
+    /// 是否为收费视频（标记为收费视频时，should_download 也会被设为 false）
+    pub is_paid_video: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -164,4 +171,18 @@ pub struct DefaultPathRequest {
 #[derive(Debug, Deserialize)]
 pub struct PollQrcodeRequest {
     pub qrcode_key: String,
+}
+
+#[derive(Deserialize, Validate)]
+pub struct RetryVideoTaskRequest {
+    /// 任务索引：0=视频封面, 1=视频信息, 2=UP主头像, 3=UP主信息, 4=分页下载
+    #[validate(range(min = 0, max = 4))]
+    pub task_index: usize,
+}
+
+#[derive(Deserialize, Validate)]
+pub struct RetryPageTaskRequest {
+    /// 任务索引：0=视频封面, 1=视频内容, 2=视频信息, 3=视频弹幕, 4=视频字幕
+    #[validate(range(min = 0, max = 4))]
+    pub task_index: usize,
 }

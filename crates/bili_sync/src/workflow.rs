@@ -563,7 +563,32 @@ pub async fn fetch_page_poster(
         .fetch(url, &poster_path, &cx.config.concurrent_limit.download)
         .await?;
     if let Some(fanart_path) = fanart_path {
-        fs::copy(&poster_path, &fanart_path).await?;
+    // 确保 fanart_path 的父目录存在（虽然理论上应该已经存在，但为了确保权限正确）
+    if let Some(parent) = fanart_path.parent() {
+        fs::create_dir_all(parent).await
+            .map_err(|e| {
+                error!("处理视频「{}」第 {} 页横幅图片父目录创建失败: {}", &video_model.name, page_model.pid, e);
+                e
+            })?;
+    }
+    // 如果目标文件已存在，先删除它（避免权限问题）
+    if fanart_path.exists() {
+        if let Err(e) = fs::remove_file(&fanart_path).await {
+            error!("处理视频「{}」第 {} 页删除已存在的横幅图片失败: {}", &video_model.name, page_model.pid, e);
+            // 如果删除失败，尝试继续复制（可能会覆盖）
+        }
+    }
+    // 使用 read + write 方式复制，更可靠
+    let data = fs::read(&poster_path).await
+        .map_err(|e| {
+            error!("处理视频「{}」第 {} 页读取封面图片失败: {}", &video_model.name, page_model.pid, e);
+            e
+        })?;
+    fs::write(&fanart_path, &data).await
+        .map_err(|e| {
+            error!("处理视频「{}」第 {} 页写入横幅图片失败: {}", &video_model.name, page_model.pid, e);
+            e
+        })?;
     }
     Ok(ExecutionStatus::Succeeded)
 }
@@ -697,7 +722,32 @@ pub async fn fetch_video_poster(
     cx.downloader
         .fetch(&video_model.cover, &poster_path, &cx.config.concurrent_limit.download)
         .await?;
-    fs::copy(&poster_path, &fanart_path).await?;
+    // 确保 fanart_path 的父目录存在（虽然理论上应该已经存在，但为了确保权限正确）
+    if let Some(parent) = fanart_path.parent() {
+        fs::create_dir_all(parent).await
+            .map_err(|e| {
+                error!("处理视频「{}」横幅图片父目录创建失败: {}", &video_model.name, e);
+                e
+            })?;
+    }
+    // 如果目标文件已存在，先删除它（避免权限问题）
+    if fanart_path.exists() {
+        if let Err(e) = fs::remove_file(&fanart_path).await {
+            error!("处理视频「{}」删除已存在的横幅图片失败: {}", &video_model.name, e);
+            // 如果删除失败，尝试继续复制（可能会覆盖）
+        }
+    }
+    // 使用 read + write 方式复制，更可靠
+    let data = fs::read(&poster_path).await
+        .map_err(|e| {
+            error!("处理视频「{}」读取封面图片失败: {}", &video_model.name, e);
+            e
+        })?;
+    fs::write(&fanart_path, &data).await
+        .map_err(|e| {
+            error!("处理视频「{}」写入横幅图片失败: {}", &video_model.name, e);
+            e
+        })?;
     Ok(ExecutionStatus::Succeeded)
 }
 

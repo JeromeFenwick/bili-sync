@@ -5,6 +5,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import EditIcon from '@lucide/svelte/icons/edit';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
+	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import api from '$lib/api';
 	import { Checkbox } from '$lib/components/ui/checkbox/index.js';
 	import { Label } from '$lib/components/ui/label/index.js';
@@ -38,22 +39,29 @@
 	import DropdownFilter, { type Filter } from '$lib/components/dropdown-filter.svelte';
 	import SearchBar from '$lib/components/search-bar.svelte';
 	import FilteredStatusEditor from '$lib/components/filtered-status-editor.svelte';
+	import BatchStatusEditor from '$lib/components/batch-status-editor.svelte';
 	import StatusFilter from '$lib/components/status-filter.svelte';
 
 	const pageSize = 20;
 
-	let videosData: VideosResponse | null = null;
-	let loading = false;
+	let videosData = $state<VideosResponse | null>(null);
+	let loading = $state(false);
 
 	let lastSearch: string | null = null;
 
-	let resetAllDialogOpen = false;
-	let resettingAll = false;
+	let resetAllDialogOpen = $state(false);
+	let resettingAll = $state(false);
 
-	let forceReset = false;
+	let forceReset = $state(false);
 
-	let updateAllDialogOpen = false;
-	let updatingAll = false;
+	let updateAllDialogOpen = $state(false);
+	let updatingAll = $state(false);
+
+	// 批量选择相关
+	let isSelectionMode = $state(false); // 是否进入选择模式
+	let selectedVideoIds = $state<Set<number>>(new Set());
+	let batchEditDialogOpen = $state(false);
+	let batchEditing = $state(false);
 
 	let videoSources: VideoSourcesResponse | null = null;
 	let filters: Record<string, Filter> | null = null;
@@ -132,8 +140,10 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 			if (sortOrder) {
 				params.sort_order = sortOrder;
 			}
+			console.log('loadVideos: params =', params);
 			const result = await api.getVideos(params);
 			videosData = result.data;
+			console.log('loadVideos: result.data =', result.data);
 		} catch (error) {
 			console.error('加载视频失败：', error);
 			toast.error('加载视频失败', {
@@ -153,7 +163,7 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 		const { query, videoSource, pageNum, statusFilter, sortBy, sortOrder } =
 			getApiParams(searchParams);
 		setAll(query, pageNum, videoSource, statusFilter, sortBy, sortOrder);
-		loadVideos(query, pageNum, videoSource, statusFilter, sortBy, sortOrder);
+		await loadVideos(query, pageNum, videoSource, statusFilter, sortBy, sortOrder);
 	}
 
 	async function handleResetVideo(id: number, forceReset: boolean) {
@@ -267,6 +277,93 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 		}
 	}
 
+	// 批量编辑选中的视频
+	async function handleBatchEditVideos(request: UpdateFilteredVideoStatusRequest) {
+		if (selectedVideoIds.size === 0) {
+			toast.info('请先选择要编辑的视频');
+			return;
+		}
+		batchEditing = true;
+		try {
+			const fullRequest = {
+				...request,
+				video_ids: Array.from(selectedVideoIds)
+			};
+			const result = await api.updateFilteredVideoStatus(fullRequest);
+			const data = result.data;
+			if (data.success) {
+				toast.success('批量更新成功', {
+					description: `已更新 ${data.updated_videos_count} 个视频和 ${data.updated_pages_count} 个分页`
+				});
+			// 清空选择
+			selectedVideoIds = new Set();
+			const { query, currentPage, videoSource, statusFilter, sortBy, sortOrder } =
+				$appStateStore;
+			await loadVideos(query, currentPage, videoSource, statusFilter, sortBy, sortOrder);
+			// 退出批量编辑模式
+			exitBatchEditMode();
+			} else {
+				toast.info('没有视频被更新');
+			}
+		} catch (error) {
+			console.error('批量更新失败：', error);
+			toast.error('批量更新失败', {
+				description: (error as ApiError).message
+			});
+		} finally {
+			batchEditing = false;
+			batchEditDialogOpen = false;
+		}
+	}
+
+	// 进入批量编辑模式
+	function enterBatchEditMode() {
+		isSelectionMode = true;
+		selectedVideoIds = new Set();
+	}
+
+	// 退出批量编辑模式
+	function exitBatchEditMode() {
+		isSelectionMode = false;
+		selectedVideoIds = new Set();
+	}
+
+	// 全选/取消全选（仅针对当前页）
+	function toggleSelectAll() {
+		if (!videosData) return;
+		const currentPageVideoIds = new Set(videosData.videos.map((v) => v.id));
+		const allCurrentPageSelected = videosData.videos.every((v) => selectedVideoIds.has(v.id));
+		
+		if (allCurrentPageSelected) {
+			// 取消全选当前页 - 只移除当前页的视频，保留其他页的选择
+			const newSet = new Set(selectedVideoIds);
+			currentPageVideoIds.forEach((id) => newSet.delete(id));
+			selectedVideoIds = newSet;
+		} else {
+			// 全选当前页 - 添加当前页的所有视频，保留其他页的选择
+			const newSet = new Set(selectedVideoIds);
+			currentPageVideoIds.forEach((id) => newSet.add(id));
+			selectedVideoIds = newSet;
+		}
+	}
+
+	// 切换单个视频的选择状态
+	function toggleVideoSelection(videoId: number) {
+		const newSet = new Set(selectedVideoIds);
+		if (newSet.has(videoId)) {
+			newSet.delete(videoId);
+		} else {
+			newSet.add(videoId);
+		}
+		selectedVideoIds = newSet;
+	}
+
+	let hasSelectedVideos = $derived(selectedVideoIds.size > 0);
+	// 检查当前页的所有视频是否都被选中
+	let isAllSelected = $derived(
+		videosData && videosData.videos.length > 0 && videosData.videos.every((v) => selectedVideoIds.has(v.id))
+	);
+
 	// 获取筛选条件的显示数组
 	function getFilterDescriptionParts(): string[] {
 		const state = $appStateStore;
@@ -299,29 +396,35 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 		return parts;
 	}
 
-	$: if ($page.url.search !== lastSearch) {
-		lastSearch = $page.url.search;
-		handleSearchParamsChange($page.url.searchParams);
-	}
+	$effect(() => {
+		const currentSearch = $page.url.search;
+		// 只在 lastSearch 已设置且发生变化时触发（避免初始化时重复加载）
+		if (lastSearch !== null && currentSearch !== lastSearch) {
+			lastSearch = currentSearch;
+			handleSearchParamsChange($page.url.searchParams);
+		}
+	});
 
-	$: if (videoSources) {
-		filters = Object.fromEntries(
-			Object.values(VIDEO_SOURCES).map((source) => [
-				source.type,
-				{
-					name: source.title,
-					icon: source.icon,
-					values: Object.fromEntries(
-						(videoSources![source.type as keyof VideoSourcesResponse] as VideoSource[]).map(
-							(item) => [item.id, item.name]
+	$effect(() => {
+		if (videoSources) {
+			filters = Object.fromEntries(
+				Object.values(VIDEO_SOURCES).map((source) => [
+					source.type,
+					{
+						name: source.title,
+						icon: source.icon,
+						values: Object.fromEntries(
+							(videoSources![source.type as keyof VideoSourcesResponse] as VideoSource[]).map(
+								(item) => [item.id, item.name]
+							)
 						)
-					)
-				}
-			])
-		);
-	} else {
-		filters = null;
-	}
+					}
+				])
+			);
+		} else {
+			filters = null;
+		}
+	});
 
 	onMount(async () => {
 		setBreadcrumb([
@@ -330,11 +433,36 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 			}
 		]);
 		videoSources = (await api.getVideoSources()).data;
+		// 初始化时直接加载视频
+		const currentSearch = $page.url.search;
+		console.log('onMount: currentSearch =', currentSearch);
+		lastSearch = currentSearch;
+		await handleSearchParamsChange($page.url.searchParams);
+		console.log('onMount: videosData =', videosData);
 	});
 
-	$: totalPages = videosData ? Math.ceil(videosData.total_count / pageSize) : 0;
-	$: hasFilters = hasActiveFilters($appStateStore);
-	$: filterDescriptionParts = videoSources && $appStateStore && getFilterDescriptionParts();
+	let totalPages = $derived(videosData ? Math.ceil(videosData.total_count / pageSize) : 0);
+	let hasFilters = $derived(hasActiveFilters($appStateStore));
+	let filterDescriptionParts = $derived(
+		videoSources && $appStateStore ? getFilterDescriptionParts() : null
+	);
+
+	// 判断是否需要显示返回按钮
+	let backButtonInfo = $derived(() => {
+		const searchParams = $page.url.searchParams;
+		const favorite = searchParams.get('favorite');
+		const collection = searchParams.get('collection');
+		const submission = searchParams.get('submission');
+		
+		if (favorite) {
+			return { show: true, href: '/me/favorites', label: '返回收藏夹' };
+		} else if (collection) {
+			return { show: true, href: '/me/collections', label: '返回合集' };
+		} else if (submission) {
+			return { show: true, href: '/me/uppers', label: '返回UP主' };
+		}
+		return { show: false, href: '', label: '' };
+	});
 </script>
 
 <svelte:head>
@@ -342,15 +470,28 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 </svelte:head>
 
 <div class="mb-4 flex items-center justify-between">
-	<SearchBar
-		placeholder="搜索视频标题或 BV 号.."
+	<div class="flex items-center gap-3">
+		{#if backButtonInfo().show}
+			<Button
+				variant="outline"
+				size="sm"
+				class="shrink-0 cursor-pointer"
+				onclick={() => goto(backButtonInfo().href)}
+			>
+				<ChevronLeftIcon class="mr-1 h-4 w-4" />
+				{backButtonInfo().label}
+			</Button>
+		{/if}
+		<SearchBar
+			placeholder="搜索视频标题或 BV 号.."
 		value={$appStateStore.query}
 		onSearch={(value) => {
 			setQuery(value);
 			resetCurrentPage();
 			goto(`/${ToQuery($appStateStore)}`);
 		}}
-	></SearchBar>
+		></SearchBar>
+	</div>
 	<div class="flex items-center gap-3">
 		<!-- 状态筛选 -->
 		<div class="flex items-center gap-1">
@@ -430,8 +571,58 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 			<div class=" text-sm font-medium">
 				当前第 {$appStateStore.currentPage + 1} / {totalPages} 页
 			</div>
+			{#if isSelectionMode && hasSelectedVideos}
+				<div class=" text-sm font-medium text-blue-600">
+					已选择 {selectedVideoIds.size} 个视频
+				</div>
+			{/if}
 		</div>
 		<div class="flex items-center gap-2">
+			{#if isSelectionMode}
+				{#if hasSelectedVideos}
+					<Button
+						size="sm"
+						variant="default"
+						class="hover:bg-accent hover:text-accent-foreground h-8 cursor-pointer text-xs font-medium"
+						onclick={() => (batchEditDialogOpen = true)}
+						disabled={batchEditing || loading}
+					>
+						<EditIcon class="mr-1.5 h-3 w-3" />
+						批量编辑 ({selectedVideoIds.size})
+					</Button>
+					<Button
+						size="sm"
+						variant="outline"
+						class="hover:bg-accent hover:text-accent-foreground h-8 cursor-pointer text-xs font-medium"
+						onclick={() => {
+							selectedVideoIds = new Set();
+						}}
+						disabled={batchEditing || loading}
+					>
+						取消选择
+					</Button>
+				{/if}
+				<Button
+					size="sm"
+					variant="outline"
+					class="hover:bg-accent hover:text-accent-foreground h-8 cursor-pointer text-xs font-medium"
+					onclick={exitBatchEditMode}
+					disabled={batchEditing || loading}
+				>
+					退出批量编辑
+				</Button>
+			{:else}
+				<Button
+					size="sm"
+					variant="outline"
+					class="hover:bg-accent hover:text-accent-foreground h-8 cursor-pointer text-xs font-medium"
+					onclick={enterBatchEditMode}
+					disabled={loading}
+				>
+					<EditIcon class="mr-1.5 h-3 w-3" />
+					批量编辑
+				</Button>
+			{/if}
 			<Button
 				size="sm"
 				variant="outline"
@@ -461,19 +652,61 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 		<div class="text-muted-foreground/70 text-sm">加载中...</div>
 	</div>
 {:else if videosData?.videos.length}
+	{#if isSelectionMode}
+		<div class="mb-4 flex items-center gap-2 border-b pb-2">
+			<Checkbox
+				id="select-all"
+				checked={isAllSelected}
+				onCheckedChange={toggleSelectAll}
+			/>
+			<Label for="select-all" class="cursor-pointer text-sm font-medium">
+				{isAllSelected ? '取消全选' : '全选'}
+			</Label>
+		</div>
+	{/if}
 	<div
 		class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
 	>
 		{#each videosData.videos as video (video.id)}
-			<VideoCard
-				{video}
-				onReset={async (forceReset: boolean) => {
-					await handleResetVideo(video.id, forceReset);
-				}}
-				onClearAndReset={async () => {
-					await handleClearAndResetVideo(video.id);
-				}}
-			/>
+			<div class="relative">
+				{#if isSelectionMode}
+					<div class="absolute left-2 top-2 z-10">
+						<Checkbox
+							checked={selectedVideoIds.has(video.id)}
+							onCheckedChange={() => toggleVideoSelection(video.id)}
+							class="bg-white/90 backdrop-blur-sm"
+						/>
+					</div>
+				{/if}
+				<VideoCard
+					{video}
+					onReset={async (forceReset: boolean) => {
+						await handleResetVideo(video.id, forceReset);
+					}}
+					onClearAndReset={async () => {
+						await handleClearAndResetVideo(video.id);
+					}}
+					onRetry={async (videoId: number, taskIndex: number, isPage: boolean) => {
+						try {
+							if (isPage) {
+								await api.retryPageTask(videoId, { task_index: taskIndex });
+							} else {
+								await api.retryVideoTask(videoId, { task_index: taskIndex });
+							}
+							// 重新加载视频列表
+							const { query, currentPage, videoSource, statusFilter, sortBy, sortOrder } =
+								$appStateStore;
+							await loadVideos(query, currentPage, videoSource, statusFilter, sortBy, sortOrder);
+							toast.success('已触发重试');
+						} catch (error) {
+							console.error('重试任务失败：', error);
+							toast.error('重试任务失败', {
+								description: (error as ApiError).message
+							});
+						}
+					}}
+				/>
+			</div>
 		{/each}
 	</div>
 
@@ -557,4 +790,12 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 	loading={updatingAll}
 	filterDescriptionParts={filterDescriptionParts || []}
 	onsubmit={handleUpdateAllVideos}
+/>
+
+<!-- 批量编辑对话框 -->
+<BatchStatusEditor
+	bind:open={batchEditDialogOpen}
+	videoCount={selectedVideoIds.size}
+	loading={batchEditing}
+	onsubmit={handleBatchEditVideos}
 />

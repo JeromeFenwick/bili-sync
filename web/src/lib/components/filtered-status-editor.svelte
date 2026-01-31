@@ -135,10 +135,21 @@
 <Sheet bind:open>
 	<SheetContent side="right" class="flex w-full flex-col sm:max-w-3xl">
 		<SheetHeader class="px-6 pb-2">
-			<SheetTitle class="text-lg">{hasFilters ? '编辑筛选视频' : '编辑全部视频'}</SheetTitle>
+			<SheetTitle class="text-lg">
+				{filterDescriptionParts.length === 1 && filterDescriptionParts[0].includes('已选择')
+					? '批量编辑选中视频'
+					: hasFilters
+						? '编辑筛选视频'
+						: '编辑全部视频'}
+			</SheetTitle>
 			<SheetDescription class="text-muted-foreground space-y-2 text-sm"
-				>批量编辑视频和分页的下载状态。可将任意子任务状态修改为“未开始”或“已完成”。<br />
-				{#if hasFilters}
+				>批量编辑视频和分页的下载状态。可将任意子任务状态修改为"未开始"或"已完成"。<br />
+				{#if filterDescriptionParts.length === 1 && filterDescriptionParts[0].includes('已选择')}
+					正在编辑<strong>选中的视频</strong>的下载状态：
+					<div class="bg-muted my-2 rounded-md p-2 text-left">
+						<div><strong>{filterDescriptionParts[0]}</strong></div>
+					</div>
+				{:else if hasFilters}
 					正在编辑<strong>符合以下筛选条件</strong>的视频的下载状态：
 					<div class="bg-muted my-2 rounded-md p-2 text-left">
 						{#each filterDescriptionParts as part, index (index)}

@@ -117,12 +117,26 @@ export interface UpdateFilteredVideoStatusRequest {
 	query?: string;
 	// 仅更新下载失败
 	failed_only?: boolean;
+	// 直接指定要更新的视频ID列表（用于批量选择操作）
+	video_ids?: number[];
 	video_updates?: StatusUpdate[];
 	page_updates?: StatusUpdate[];
+	/// 是否应该下载（用于标记收费视频等，设为 false 后定时任务会跳过）
+	should_download?: boolean;
+	/// 是否为收费视频（标记为收费视频时，should_download 也会被设为 false）
+	is_paid_video?: boolean;
 }
 
 export interface ResetVideoStatusRequest {
 	force: boolean;
+}
+
+export interface RetryVideoTaskRequest {
+	task_index: number; // 0=视频封面, 1=视频信息, 2=UP主头像, 3=UP主信息, 4=分页下载
+}
+
+export interface RetryPageTaskRequest {
+	task_index: number; // 0=视频封面, 1=视频内容, 2=视频信息, 3=视频弹幕, 4=视频字幕
 }
 
 export interface ResetFilteredVideoStatusRequest {

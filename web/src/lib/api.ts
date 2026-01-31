@@ -28,6 +28,8 @@ import type {
 	UpdateFilteredVideoStatusRequest,
 	UpdateFilteredVideoStatusResponse,
 	ResetFilteredVideoStatusRequest,
+	RetryVideoTaskRequest,
+	RetryPageTaskRequest,
 	QrcodeGenerateResponse as GenerateQrcodeResponse,
 	QrcodePollResponse as PollQrcodeResponse
 } from './types';
@@ -189,6 +191,20 @@ class ApiClient {
 		return this.post<UpdateFilteredVideoStatusResponse>('/videos/update-status', request);
 	}
 
+	async retryVideoTask(
+		id: number,
+		request: RetryVideoTaskRequest
+	): Promise<ApiResponse<UpdateVideoStatusResponse>> {
+		return this.post<UpdateVideoStatusResponse>(`/videos/${id}/retry-task`, request);
+	}
+
+	async retryPageTask(
+		id: number,
+		request: RetryPageTaskRequest
+	): Promise<ApiResponse<UpdateVideoStatusResponse>> {
+		return this.post<UpdateVideoStatusResponse>(`/pages/${id}/retry-task`, request);
+	}
+
 	async getCreatedFavorites(): Promise<ApiResponse<FavoritesResponse>> {
 		return this.get<FavoritesResponse>('/me/favorites');
 	}
@@ -309,6 +325,10 @@ const api = {
 		apiClient.updateVideoStatus(id, request),
 	updateFilteredVideoStatus: (request: UpdateFilteredVideoStatusRequest) =>
 		apiClient.updateFilteredVideoStatus(request),
+	retryVideoTask: (id: number, request: RetryVideoTaskRequest) =>
+		apiClient.retryVideoTask(id, request),
+	retryPageTask: (id: number, request: RetryPageTaskRequest) =>
+		apiClient.retryPageTask(id, request),
 	getCreatedFavorites: () => apiClient.getCreatedFavorites(),
 	getFollowedCollections: (pageNum?: number, pageSize?: number) =>
 		apiClient.getFollowedCollections(pageNum, pageSize),

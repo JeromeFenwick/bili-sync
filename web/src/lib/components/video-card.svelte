@@ -15,6 +15,9 @@
 	import MoreHorizontalIcon from '@lucide/svelte/icons/more-horizontal';
 	import { goto } from '$app/navigation';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
+	import api from '$lib/api';
+	import { toast } from 'svelte-sonner';
+	import type { ApiError } from '$lib/types';
 
 	// 将 bvid 设置为可选属性，但保留 VideoInfo 的其它所有属性
 	export let video: Omit<VideoInfo, 'bvid'> & { bvid?: string };
@@ -30,8 +33,13 @@
 	export let clearAndResetDialogOpen = false; // 导出清空重置对话框状态
 	export let resetting = false;
 	export let clearAndResetting = false;
+	export let onRetry: ((videoId: number, taskIndex: number, isPage: boolean) => Promise<void>) | null = null; // 自定义重试函数
 
 	let forceReset = false;
+	let retryingTaskIndex: number | null = null; // 正在重试的任务索引
+	let retryConfirmDialogOpen = false; // 重试确认对话框状态
+	let pendingRetryTaskIndex: number | null = null; // 待确认重试的任务索引
+	let retryWarningDialogOpen = false; // 重试警告对话框状态
 
 	function getStatusText(status: number): string {
 		if (status === 7) {
@@ -107,6 +115,131 @@
 		forceReset = false;
 	}
 
+	function checkTaskStatus(taskIndex: number): {
+		canRetry: boolean;
+		needConfirm: boolean;
+		needWarning: boolean;
+		message: string;
+	} {
+		const status = video.download_status[taskIndex];
+		const isPaidVideo = video.is_paid_video;
+		const shouldDownload = video.should_download;
+
+		// 已完成（status === 7）：显示确认提示
+		if (status === 7) {
+			return {
+				canRetry: true,
+				needConfirm: true,
+				needWarning: false,
+				message: `该任务「${getTaskName(taskIndex)}」已完成，确定要重新下载吗？`
+			};
+		}
+
+		// 跳过/收费：显示警告提示
+		if (!shouldDownload || isPaidVideo) {
+			const reason = isPaidVideo ? '收费视频' : '已跳过';
+			return {
+				canRetry: true,
+				needConfirm: false,
+				needWarning: true,
+				message: `该任务「${getTaskName(taskIndex)}」为${reason}，重试后定时任务仍会跳过`
+			};
+		}
+
+		// 未开始（status === 0）或失败（status > 0 && status < 7）：直接重试，无需确认
+		return {
+			canRetry: true,
+			needConfirm: false,
+			needWarning: false,
+			message: ''
+		};
+	}
+
+	function handleRetryTaskClick(taskIndex: number) {
+		if (retryingTaskIndex !== null) {
+			return; // 正在重试中，忽略新的点击
+		}
+
+		const statusCheck = checkTaskStatus(taskIndex);
+		
+		if (!statusCheck.canRetry) {
+			toast.info(statusCheck.message);
+			return;
+		}
+
+		if (statusCheck.needConfirm) {
+			// 需要确认
+			pendingRetryTaskIndex = taskIndex;
+			retryConfirmDialogOpen = true;
+		} else if (statusCheck.needWarning) {
+			// 需要警告
+			pendingRetryTaskIndex = taskIndex;
+			retryWarningDialogOpen = true;
+		} else {
+			// 直接重试
+			executeRetryTask(taskIndex);
+		}
+	}
+
+	async function executeRetryTask(taskIndex: number) {
+		if (retryingTaskIndex !== null) {
+			return; // 正在重试中，忽略新的点击
+		}
+		retryingTaskIndex = taskIndex;
+		try {
+			if (onRetry) {
+				// 使用自定义重试函数
+				await onRetry(video.id, taskIndex, mode === 'page');
+			} else {
+				// 默认重试逻辑
+				if (mode === 'page') {
+					// 分页任务
+					const result = await api.retryPageTask(video.id, { task_index: taskIndex });
+					if (result.data.success) {
+						toast.success(`已触发重试：${getTaskName(taskIndex)}`);
+						// 更新本地状态
+						video.download_status = result.data.video.download_status;
+					} else {
+						toast.error('重试失败');
+					}
+				} else {
+					// 视频任务
+					const result = await api.retryVideoTask(video.id, { task_index: taskIndex });
+					if (result.data.success) {
+						toast.success(`已触发重试：${getTaskName(taskIndex)}`);
+						// 更新本地状态
+						video.download_status = result.data.video.download_status;
+					} else {
+						toast.error('重试失败');
+					}
+				}
+			}
+		} catch (error) {
+			console.error('重试任务失败：', error);
+			toast.error('重试任务失败', {
+				description: (error as ApiError).message
+			});
+		} finally {
+			retryingTaskIndex = null;
+		}
+	}
+
+	async function handleRetryConfirm() {
+		if (pendingRetryTaskIndex !== null) {
+			await executeRetryTask(pendingRetryTaskIndex);
+			pendingRetryTaskIndex = null;
+		}
+		retryConfirmDialogOpen = false;
+	}
+
+	async function handleRetryWarningConfirm() {
+		if (pendingRetryTaskIndex !== null) {
+			await executeRetryTask(pendingRetryTaskIndex);
+			pendingRetryTaskIndex = null;
+		}
+		retryWarningDialogOpen = false;
+	}
+
 	async function handleClearAndReset() {
 		clearAndResetting = true;
 		if (onClearAndReset) {
@@ -125,7 +258,7 @@
 	$: displaySubtitle = customSubtitle || video.upper_name;
 	$: cardClasses =
 		mode === 'default'
-			? 'group flex h-full min-w-0 flex-col transition-all hover:shadow-lg hover:shadow-primary/5 border-border/50'
+			? 'group flex h-[250px] min-w-0 flex-col transition-all hover:shadow-lg hover:shadow-primary/5 border-border/50'
 			: 'transition-all hover:shadow-lg border-border/50';
 </script>
 
@@ -174,13 +307,27 @@
 							<Tooltip.Root>
 								<Tooltip.Trigger class="flex-1">
 									<div
-										class="h-1.5 w-full cursor-help rounded-full transition-all {getSegmentColor(
+										class="h-1.5 w-full rounded-full transition-all {getSegmentColor(
 											status
-										)}"
+										)} {retryingTaskIndex === index
+											? 'opacity-50 cursor-wait'
+											: 'cursor-pointer hover:opacity-80'}"
+										onclick={() => handleRetryTaskClick(index)}
+										role="button"
+										tabindex="0"
+										onkeydown={(e) => {
+											if (e.key === 'Enter' || e.key === ' ') {
+												e.preventDefault();
+												handleRetryTaskClick(index);
+											}
+										}}
 									></div>
 								</Tooltip.Trigger>
 								<Tooltip.Content>
-									<p class="text-xs">{getTaskName(index)}: {getStatusText(status)}</p>
+									<p class="text-xs">
+										{getTaskName(index)}: {getStatusText(status)}
+										{retryingTaskIndex === index ? ' (重试中...)' : ' (点击重试)'}
+									</p>
 								</Tooltip.Content>
 							</Tooltip.Root>
 						{/each}
@@ -317,6 +464,56 @@
 				class="bg-destructive hover:bg-destructive/90"
 			>
 				{clearAndResetting ? '清空重置中...' : '确认清空重置'}
+			</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>
+
+<!-- 重试确认对话框（已完成的任务） -->
+<AlertDialog.Root bind:open={retryConfirmDialogOpen}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>确认重试</AlertDialog.Title>
+			<AlertDialog.Description>
+				{#if pendingRetryTaskIndex !== null}
+					{checkTaskStatus(pendingRetryTaskIndex).message}
+				{/if}
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>取消</AlertDialog.Cancel>
+			<AlertDialog.Action
+				onclick={handleRetryConfirm}
+				disabled={retryingTaskIndex !== null}
+				class="bg-primary hover:bg-primary/90"
+			>
+				{retryingTaskIndex !== null ? '重试中...' : '确认重试'}
+			</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>
+
+<!-- 重试警告对话框（跳过/收费的任务） -->
+<AlertDialog.Root bind:open={retryWarningDialogOpen}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>警告</AlertDialog.Title>
+			<AlertDialog.Description>
+				{#if pendingRetryTaskIndex !== null}
+					{checkTaskStatus(pendingRetryTaskIndex).message}
+				{/if}
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>取消</AlertDialog.Cancel>
+			<AlertDialog.Action
+				onclick={handleRetryWarningConfirm}
+				disabled={retryingTaskIndex !== null}
+				class="bg-yellow-600 hover:bg-yellow-700 text-white"
+			>
+				{retryingTaskIndex !== null ? '重试中...' : '仍要重试'}
 			</AlertDialog.Action>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>

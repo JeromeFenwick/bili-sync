@@ -8,6 +8,7 @@
 	export let onStatusChange: (newStatus: number) => void;
 	export let onReset: () => void;
 	export let disabled: boolean = false;
+	export let showOriginal: boolean = true; // 是否显示原始状态和修改标记
 
 	// 获取状态显示信息
 	function getStatusInfo(value: number) {
@@ -19,7 +20,7 @@
 	}
 
 	$: statusInfo = getStatusInfo(currentStatus);
-	$: isModified = currentStatus !== originalStatus;
+	$: isModified = showOriginal && currentStatus !== originalStatus;
 </script>
 
 <div

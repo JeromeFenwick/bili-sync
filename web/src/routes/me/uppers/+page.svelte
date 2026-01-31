@@ -14,7 +14,7 @@
 	let loading = false;
 	let searchQuery = '';
 
-	const pageSize = 50;
+	const pageSize = 25;
 
 	async function loadUppers(page: number = 0, name?: string) {
 		loading = true;
@@ -84,12 +84,10 @@
 		</div>
 	{:else if uppers.length > 0}
 		<div
-			style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; width: 100%; max-width: none; justify-items: start;"
+			style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; width: 100%;"
 		>
 			{#each uppers as upper (upper.mid)}
-				<div style="max-width: 450px; width: 100%;">
-					<SubscriptionCard item={upper} onSubscriptionSuccess={handleSubscriptionSuccess} />
-				</div>
+				<SubscriptionCard item={upper} onSubscriptionSuccess={handleSubscriptionSuccess} />
 			{/each}
 		</div>
 

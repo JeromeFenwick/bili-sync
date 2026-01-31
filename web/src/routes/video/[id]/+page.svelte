@@ -115,6 +115,38 @@
 		}
 	}
 
+	async function handleRetryTask(videoId: number, taskIndex: number, isPage: boolean) {
+		if (!videoData) return;
+		try {
+			if (isPage) {
+				// 分页任务
+				const result = await api.retryPageTask(videoId, { task_index: taskIndex });
+				if (result.data.success) {
+					// 重新加载视频详情
+					await loadVideoDetail();
+					toast.success(`已触发重试：${isPage ? '分页' : '视频'}任务`);
+				} else {
+					toast.error('重试失败');
+				}
+			} else {
+				// 视频任务
+				const result = await api.retryVideoTask(videoId, { task_index: taskIndex });
+				if (result.data.success) {
+					// 重新加载视频详情
+					await loadVideoDetail();
+					toast.success(`已触发重试：${isPage ? '分页' : '视频'}任务`);
+				} else {
+					toast.error('重试失败');
+				}
+			}
+		} catch (error) {
+			console.error('重试任务失败：', error);
+			toast.error('重试任务失败', {
+				description: (error as ApiError).message
+			});
+		}
+	}
+
 	async function handleClearAndReset() {
 		if (!videoData) return;
 		try {
@@ -220,7 +252,8 @@
 					name: videoData.video.name,
 					upper_name: videoData.video.upper_name,
 					download_status: videoData.video.download_status,
-					should_download: videoData.video.should_download
+					should_download: videoData.video.should_download,
+					is_paid_video: videoData.video.is_paid_video
 				}}
 				mode="detail"
 				showActions={false}
@@ -231,6 +264,7 @@
 				bind:clearAndResetting
 				onReset={handleReset}
 				onClearAndReset={handleClearAndReset}
+				onRetry={handleRetryTask}
 			/>
 		</div>
 	</section>
@@ -256,10 +290,12 @@
 								name: `P${pageInfo.pid}: ${pageInfo.name}`,
 								upper_name: '',
 								download_status: pageInfo.download_status,
-								should_download: videoData.video.should_download
+								should_download: videoData.video.should_download,
+								is_paid_video: videoData.video.is_paid_video
 							}}
 							mode="page"
 							showActions={false}
+							onRetry={handleRetryTask}
 							customTitle="P{pageInfo.pid}: {pageInfo.name}"
 							customSubtitle=""
 							taskNames={['视频封面', '视频内容', '视频信息', '视频弹幕', '视频字幕']}
