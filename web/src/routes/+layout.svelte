@@ -14,7 +14,7 @@
 <Sidebar.Provider>
 	<AppSidebar />
 	<Sidebar.Inset class="flex flex-col" style="height: calc(100vh - 1rem)">
-		<header class="flex h-16 shrink-0 items-center gap-2">
+		<header class="relative z-50 flex h-16 shrink-0 items-center gap-2">
 			<div class="flex items-center gap-2 px-4">
 				<Sidebar.Trigger class="-ml-1" />
 				<Separator orientation="vertical" class="mr-2 data-[orientation=vertical]:h-4" />

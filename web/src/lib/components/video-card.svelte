@@ -260,7 +260,12 @@
 
 	function handleCoverClick(e: MouseEvent) {
 		e.stopPropagation(); // 阻止事件冒泡，避免触发 handleCardClick
-		handleViewDetail();
+		// 在批量编辑模式下，点击封面切换选择状态，而不是跳转到详情页
+		if (isSelectionMode && onToggleSelection) {
+			onToggleSelection();
+		} else {
+			handleViewDetail();
+		}
 	}
 
 	// 根据模式确定显示的标题和副标题
