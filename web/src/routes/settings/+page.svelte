@@ -19,22 +19,30 @@
 	import { setBreadcrumb } from '$lib/stores/breadcrumb';
 	import type { Config, ApiError, Notifier, Credential } from '$lib/types';
 
-	let frontendToken = ''; // 前端认证token
-	let config: Config | null = null;
-	let formData: Config | null = null;
-	let saving = false;
-	let loading = false;
+	let frontendToken = $state(''); // 前端认证token
+	let config = $state<Config | null>(null);
+	let formData = $state<Config | null>(null);
+	let saving = $state(false);
+	let loading = $state(false);
 
-	let intervalInput: string = '1200';
+	let intervalInput = $state<string>('1200');
+	let dailySummaryHour = $state(9);
+	let dailySummaryMinute = $state(0);
+	let dailySummaryHourInput = $state('09');
+	let dailySummaryMinuteInput = $state('00');
+	
+	// 静默时间段相关
+	let quietHoursStartInput = $state('22');
+	let quietHoursEndInput = $state('09');
 
 	// Notifier 管理相关
-	let showNotifierDialog = false;
-	let editingNotifier: Notifier | null = null;
-	let editingNotifierIndex: number | null = null;
-	let isEditing = false;
+	let showNotifierDialog = $state(false);
+	let editingNotifier = $state<Notifier | null>(null);
+	let editingNotifierIndex = $state<number | null>(null);
+	let isEditing = $state(false);
 
 	// QR 登录 Dialog 相关
-	let showQrLoginDialog = false;
+	let showQrLoginDialog = $state(false);
 	let qrLoginComponent: QrLogin;
 
 	function openAddNotifierDialog() {
@@ -82,8 +90,17 @@
 
 	async function testNotifier(notifier: Notifier) {
 		try {
-			await api.testNotifier(notifier);
-			toast.success('测试通知发送成功');
+			const response = await api.testNotifier(notifier);
+			const result = response.data;
+			if (result.success) {
+				toast.success(result.message, {
+					description: result.details || undefined
+				});
+			} else {
+				toast.error(result.message, {
+					description: result.details || undefined
+				});
+			}
 		} catch (error) {
 			console.error('测试通知失败:', error);
 			toast.error('测试通知失败', {
@@ -98,6 +115,50 @@
 			const response = await api.getConfig();
 			config = response.data;
 			formData = { ...config };
+			
+			// 设置默认值（如果后端没有返回这些字段）
+			if (formData.notify_new_videos === undefined) {
+				formData.notify_new_videos = false;
+			}
+			if (formData.notify_daily_summary === undefined) {
+				formData.notify_daily_summary = false;
+			}
+			if (formData.notification_interval === undefined) {
+				formData.notification_interval = 5;
+			}
+			if (formData.daily_summary_cron === undefined) {
+				formData.daily_summary_cron = '0 0 9 * * *';
+			}
+			
+			// 解析每日汇总时间的 cron 表达式
+			// cron 格式：秒 分 时 日 月 周，例如 "0 0 9 * * *" 表示每天9点0分0秒
+			if (formData.daily_summary_cron) {
+				const cronMatch = formData.daily_summary_cron.match(/^0\s+(\d+)\s+(\d+)\s+\*\s+\*\s+\*$/);
+				if (cronMatch) {
+					const minute = parseInt(cronMatch[1], 10);
+					const hour = parseInt(cronMatch[2], 10);
+					// 只有当解析结果为 NaN 时才使用默认值，0 是有效值
+					dailySummaryMinute = isNaN(minute) ? 0 : minute;
+					dailySummaryHour = isNaN(hour) ? 9 : hour;
+					// 同步更新输入框显示值
+					dailySummaryHourInput = String(dailySummaryHour).padStart(2, '0');
+					dailySummaryMinuteInput = String(dailySummaryMinute).padStart(2, '0');
+				} else {
+					// 如果格式不匹配，使用默认值并更新 cron 表达式
+					dailySummaryHour = 9;
+					dailySummaryMinute = 0;
+					dailySummaryHourInput = '09';
+					dailySummaryMinuteInput = '00';
+					formData.daily_summary_cron = `0 0 9 * * *`;
+				}
+			} else {
+				// 如果没有 cron 表达式，使用默认值
+				dailySummaryHour = 9;
+				dailySummaryMinute = 0;
+				dailySummaryHourInput = '09';
+				dailySummaryMinuteInput = '00';
+				formData.daily_summary_cron = `0 0 9 * * *`;
+			}
 
 			// 根据 interval 的类型初始化输入框
 			if (typeof formData.interval === 'number') {
@@ -105,11 +166,37 @@
 			} else {
 				intervalInput = formData.interval;
 			}
+			
+			// 加载静默时间段配置
+			if (formData.enable_notification_quiet_hours === undefined) {
+				formData.enable_notification_quiet_hours = false;
+			}
+			if (formData.quiet_hours_start === undefined) {
+				formData.quiet_hours_start = 22;
+			}
+			if (formData.quiet_hours_end === undefined) {
+				formData.quiet_hours_end = 9;
+			}
+			quietHoursStartInput = String(formData.quiet_hours_start).padStart(2, '0');
+			quietHoursEndInput = String(formData.quiet_hours_end).padStart(2, '0');
 		} catch (error) {
 			console.error('加载配置失败:', error);
-			toast.error('加载配置失败', {
-				description: (error as ApiError).message
-			});
+			const apiError = error as ApiError;
+			
+			// 如果是认证错误（401），清除认证信息
+			if (apiError.status === 401) {
+				formData = null;
+				config = null;
+				frontendToken = '';
+				api.clearAuthToken();
+				toast.error('认证已失效', {
+					description: '请重新输入 Token 进行认证'
+				});
+			} else {
+				toast.error('加载配置失败', {
+					description: apiError.message
+				});
+			}
 		} finally {
 			loading = false;
 		}
@@ -124,7 +211,7 @@
 		try {
 			api.setAuthToken(frontendToken.trim());
 			localStorage.setItem('authToken', frontendToken.trim());
-			loadConfig();
+			await loadConfig();
 			toast.success('前端认证成功');
 		} catch (error) {
 			console.error('前端认证失败:', error);
@@ -150,6 +237,67 @@
 			formData.interval = trimmed;
 		}
 
+		// 确保每日汇总的 cron 表达式根据当前输入的时间更新
+		if (formData.notify_daily_summary) {
+			// 从输入框状态读取最新值
+			let hour = dailySummaryHour;
+			let minute = dailySummaryMinute;
+			
+			if (dailySummaryHourInput !== '') {
+				const hourValue = parseInt(dailySummaryHourInput, 10);
+				if (!isNaN(hourValue)) {
+					hour = Math.max(0, Math.min(23, hourValue));
+					dailySummaryHour = hour;
+					dailySummaryHourInput = String(hour).padStart(2, '0');
+				}
+			}
+			
+			if (dailySummaryMinuteInput !== '') {
+				const minuteValue = parseInt(dailySummaryMinuteInput, 10);
+				if (!isNaN(minuteValue)) {
+					minute = Math.max(0, Math.min(59, minuteValue));
+					dailySummaryMinute = minute;
+					dailySummaryMinuteInput = String(minute).padStart(2, '0');
+				}
+			}
+			
+			// 确保小时和分钟在有效范围内，并更新 cron 表达式
+			hour = Math.max(0, Math.min(23, hour));
+			minute = Math.max(0, Math.min(59, minute));
+			formData.daily_summary_cron = `0 ${minute} ${hour} * * *`;
+			
+			// 同步更新 state 和输入框显示
+			dailySummaryHour = hour;
+			dailySummaryMinute = minute;
+			dailySummaryHourInput = String(hour).padStart(2, '0');
+			dailySummaryMinuteInput = String(minute).padStart(2, '0');
+		}
+		
+		// 保存静默时间段配置
+		if (formData.enable_notification_quiet_hours) {
+			// 从输入框读取并验证静默时间段
+			let startHour = formData.quiet_hours_start;
+			let endHour = formData.quiet_hours_end;
+			
+			if (quietHoursStartInput !== '') {
+				const startValue = parseInt(quietHoursStartInput, 10);
+				if (!isNaN(startValue)) {
+					startHour = Math.max(0, Math.min(23, startValue));
+					formData.quiet_hours_start = startHour;
+					quietHoursStartInput = String(startHour).padStart(2, '0');
+				}
+			}
+			
+			if (quietHoursEndInput !== '') {
+				const endValue = parseInt(quietHoursEndInput, 10);
+				if (!isNaN(endValue)) {
+					endHour = Math.max(0, Math.min(23, endValue));
+					formData.quiet_hours_end = endHour;
+					quietHoursEndInput = String(endHour).padStart(2, '0');
+				}
+			}
+		}
+
 		saving = true;
 		try {
 			let resp = await api.updateConfig(formData);
@@ -161,6 +309,23 @@
 				intervalInput = String(formData.interval);
 			} else {
 				intervalInput = formData.interval;
+			}
+
+			// 重新解析每日汇总时间的 cron 表达式，确保界面显示正确
+			if (formData.daily_summary_cron) {
+				const cronMatch = formData.daily_summary_cron.match(/^0\s+(\d+)\s+(\d+)\s+\*\s+\*\s+\*$/);
+				if (cronMatch) {
+					const minute = parseInt(cronMatch[1], 10);
+					const hour = parseInt(cronMatch[2], 10);
+					if (!isNaN(minute) && !isNaN(hour)) {
+						dailySummaryMinute = minute;
+						dailySummaryHour = hour;
+						// 同步更新输入框显示值
+						dailySummaryHourInput = String(hour).padStart(2, '0');
+						dailySummaryMinuteInput = String(minute).padStart(2, '0');
+					}
+				}
+				// 如果解析失败，保持当前值不变，不设置默认值
 			}
 
 			toast.success('配置已保存');
@@ -783,16 +948,250 @@
 
 				<!-- 通知设置 -->
 				<Tabs.Content value="notifiers" class="mt-6 space-y-6">
-					<div class="space-y-4">
-						<div class="flex items-center justify-between">
-							<div>
-								<h3 class="text-lg font-semibold">通知器管理</h3>
-								<p class="text-muted-foreground text-sm">
-									配置通知器，在下载任务出现错误时发送通知
-								</p>
+					<div class="space-y-6">
+						<!-- 通知选项 -->
+						<div class="space-y-4 rounded-lg border p-4">
+							<h3 class="text-lg font-semibold">通知选项</h3>
+							<div class="space-y-4">
+								<div class="flex items-center justify-between">
+									<div class="space-y-0.5">
+										<Label for="notify-new-videos">订阅新增通知</Label>
+										<p class="text-muted-foreground text-sm">
+											当收藏夹/合集/UP投稿有新增视频时发送通知
+										</p>
+									</div>
+									<Switch
+										id="notify-new-videos"
+										bind:checked={formData.notify_new_videos}
+									/>
+								</div>
+								<Separator />
+								<div class="flex items-center justify-between">
+									<div class="space-y-0.5">
+										<Label for="notify-daily-summary">每日汇总通知</Label>
+										<p class="text-muted-foreground text-sm">
+											定时发送所有视频的汇总消息
+										</p>
+									</div>
+									<Switch
+										id="notify-daily-summary"
+										bind:checked={formData.notify_daily_summary}
+									/>
+								</div>
+								{#if formData.notify_daily_summary}
+									<div class="space-y-2">
+										<Label for="daily-summary-time">发送时间</Label>
+										<div class="flex items-center gap-1">
+											<Input
+												id="daily-summary-hour"
+												type="text"
+												inputmode="numeric"
+												pattern="[0-9]*"
+												bind:value={dailySummaryHourInput}
+												oninput={(e) => {
+													// 只允许数字，最多2位
+													let value = e.currentTarget.value.replace(/\D/g, '');
+													if (value.length > 2) {
+														value = value.slice(0, 2);
+													}
+													dailySummaryHourInput = value;
+													
+													// 更新数值和 cron 表达式
+													if (value === '') {
+														dailySummaryHour = 0;
+													} else {
+														const num = parseInt(value, 10);
+														dailySummaryHour = Math.max(0, Math.min(23, num));
+													}
+													formData.daily_summary_cron = `0 ${dailySummaryMinute} ${dailySummaryHour} * * *`;
+												}}
+												onblur={(e) => {
+													// 失去焦点时格式化为两位数字
+													if (dailySummaryHourInput === '') {
+														dailySummaryHourInput = '00';
+														dailySummaryHour = 0;
+													} else {
+														const num = parseInt(dailySummaryHourInput, 10);
+														dailySummaryHour = Math.max(0, Math.min(23, num));
+														dailySummaryHourInput = String(dailySummaryHour).padStart(2, '0');
+													}
+													formData.daily_summary_cron = `0 ${dailySummaryMinute} ${dailySummaryHour} * * *`;
+												}}
+												class="w-16 text-center"
+												placeholder="09"
+												maxlength="2"
+											/>
+											<span class="text-lg font-medium">:</span>
+											<Input
+												id="daily-summary-minute"
+												type="text"
+												inputmode="numeric"
+												pattern="[0-9]*"
+												bind:value={dailySummaryMinuteInput}
+												oninput={(e) => {
+													// 只允许数字，最多2位
+													let value = e.currentTarget.value.replace(/\D/g, '');
+													if (value.length > 2) {
+														value = value.slice(0, 2);
+													}
+													dailySummaryMinuteInput = value;
+													
+													// 更新数值和 cron 表达式
+													if (value === '') {
+														dailySummaryMinute = 0;
+													} else {
+														const num = parseInt(value, 10);
+														dailySummaryMinute = Math.max(0, Math.min(59, num));
+													}
+													formData.daily_summary_cron = `0 ${dailySummaryMinute} ${dailySummaryHour} * * *`;
+												}}
+												onblur={(e) => {
+													// 失去焦点时格式化为两位数字
+													if (dailySummaryMinuteInput === '') {
+														dailySummaryMinuteInput = '00';
+														dailySummaryMinute = 0;
+													} else {
+														const num = parseInt(dailySummaryMinuteInput, 10);
+														dailySummaryMinute = Math.max(0, Math.min(59, num));
+														dailySummaryMinuteInput = String(dailySummaryMinute).padStart(2, '0');
+													}
+													formData.daily_summary_cron = `0 ${dailySummaryMinute} ${dailySummaryHour} * * *`;
+												}}
+												class="w-16 text-center"
+												placeholder="00"
+												maxlength="2"
+											/>
+										</div>
+										<p class="text-muted-foreground text-sm">
+											设置每日汇总消息的发送时间（24小时制，格式：HH:MM）
+										</p>
+									</div>
+									<Separator />
+								{/if}
+								<div class="space-y-2">
+									<Label for="notification-interval">消息队列等待时间（秒）</Label>
+									<Input
+										id="notification-interval"
+										type="number"
+										min="1"
+										max="60"
+										bind:value={formData.notification_interval}
+									/>
+									<p class="text-muted-foreground text-sm">
+										每条消息发送后等待的时间，建议范围：3-10秒，默认5秒
+									</p>
+								</div>
+								{#if formData.notifiers && formData.notifiers.length > 0}
+									<Separator />
+									<div class="flex items-center justify-between">
+										<div class="space-y-0.5">
+											<Label for="enable-quiet-hours">静默时间段</Label>
+											<p class="text-muted-foreground text-sm">
+												在指定时间段内，统计通知将延迟到静默结束后发送
+											</p>
+										</div>
+										<Switch
+											id="enable-quiet-hours"
+											bind:checked={formData.enable_notification_quiet_hours}
+										/>
+									</div>
+									{#if formData.enable_notification_quiet_hours}
+										<div class="space-y-4 rounded-lg border p-4 bg-muted/50">
+											<div class="space-y-2">
+												<Label for="quiet-hours-start">静默开始时间（小时）</Label>
+												<Input
+													id="quiet-hours-start"
+													type="text"
+													inputmode="numeric"
+													pattern="[0-9]*"
+													bind:value={quietHoursStartInput}
+													oninput={(e) => {
+														let value = e.currentTarget.value.replace(/\D/g, '');
+														if (value.length > 2) {
+															value = value.slice(0, 2);
+														}
+														quietHoursStartInput = value;
+														if (value === '') {
+															formData.quiet_hours_start = 0;
+														} else {
+															const num = parseInt(value, 10);
+															formData.quiet_hours_start = Math.max(0, Math.min(23, num));
+														}
+													}}
+													onblur={(e) => {
+														if (quietHoursStartInput === '') {
+															quietHoursStartInput = '00';
+															formData.quiet_hours_start = 0;
+														} else {
+															const num = parseInt(quietHoursStartInput, 10);
+															formData.quiet_hours_start = Math.max(0, Math.min(23, num));
+															quietHoursStartInput = String(formData.quiet_hours_start).padStart(2, '0');
+														}
+													}}
+													class="w-20 text-center"
+													placeholder="22"
+													maxlength="2"
+												/>
+												<p class="text-muted-foreground text-sm">
+													静默开始时间（0-23，例如 22 表示晚上10点）
+												</p>
+											</div>
+											<div class="space-y-2">
+												<Label for="quiet-hours-end">静默结束时间（小时）</Label>
+												<Input
+													id="quiet-hours-end"
+													type="text"
+													inputmode="numeric"
+													pattern="[0-9]*"
+													bind:value={quietHoursEndInput}
+													oninput={(e) => {
+														let value = e.currentTarget.value.replace(/\D/g, '');
+														if (value.length > 2) {
+															value = value.slice(0, 2);
+														}
+														quietHoursEndInput = value;
+														if (value === '') {
+															formData.quiet_hours_end = 0;
+														} else {
+															const num = parseInt(value, 10);
+															formData.quiet_hours_end = Math.max(0, Math.min(23, num));
+														}
+													}}
+													onblur={(e) => {
+														if (quietHoursEndInput === '') {
+															quietHoursEndInput = '00';
+															formData.quiet_hours_end = 0;
+														} else {
+															const num = parseInt(quietHoursEndInput, 10);
+															formData.quiet_hours_end = Math.max(0, Math.min(23, num));
+															quietHoursEndInput = String(formData.quiet_hours_end).padStart(2, '0');
+														}
+													}}
+													class="w-20 text-center"
+													placeholder="09"
+													maxlength="2"
+												/>
+												<p class="text-muted-foreground text-sm">
+													静默结束时间（0-23，例如 09 表示早上9点）。如果结束时间小于开始时间，表示跨天（如 22:00-09:00）
+												</p>
+											</div>
+										</div>
+									{/if}
+								{/if}
 							</div>
-							<Button onclick={openAddNotifierDialog}>+ 添加通知器</Button>
 						</div>
+
+						<!-- 通知器管理 -->
+						<div class="space-y-4">
+							<div class="flex items-center justify-between">
+								<div>
+									<h3 class="text-lg font-semibold">通知器管理</h3>
+									<p class="text-muted-foreground text-sm">
+										配置通知器，在下载任务出现错误时发送通知
+									</p>
+								</div>
+								<Button onclick={openAddNotifierDialog}>+ 添加通知器</Button>
+							</div>
 
 						{#if !formData.notifiers || formData.notifiers.length === 0}
 							<div class="rounded-lg border-2 border-dashed py-12 text-center">

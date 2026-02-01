@@ -17,6 +17,7 @@ use crate::bilibili::{BestStream, BiliClient, BiliError, Dimension, PageInfo, Vi
 use crate::config::{ARGS, Config, PathSafeTemplate};
 use crate::downloader::Downloader;
 use crate::error::ExecutionStatus;
+use crate::notifier::{NotifierAllExt, NOTIFICATION_QUEUE};
 use crate::utils::download_context::DownloadContext;
 use crate::utils::format_arg::{page_format_args, video_format_args};
 use crate::utils::model::{
@@ -42,7 +43,7 @@ pub async fn process_video_source(
         .refresh(bili_client, &config.credential, connection)
         .await?;
     // 从视频流中获取新视频的简要信息，写入数据库
-    refresh_video_source(&video_source, video_streams, connection).await?;
+    let new_bvids = refresh_video_source(&video_source, video_streams, connection).await?;
     // 单独请求视频详情接口，获取视频的详情信息与所有的分页，写入数据库
     fetch_video_details(bili_client, &video_source, connection, config).await?;
     if ARGS.scan_only {
@@ -51,15 +52,58 @@ pub async fn process_video_source(
         // 从数据库中查找所有未下载的视频与分页，下载并处理
         download_unprocessed_videos(bili_client, &video_source, connection, template, config).await?;
     }
+    
+    // 如果启用了新视频通知且有新视频，统计并发送通知
+    if !new_bvids.is_empty() && config.notify_new_videos {
+        if let Some(notifiers) = &config.notifiers
+            && !notifiers.is_empty()
+        {
+            // 统计新视频的成功/失败数量
+            let total_count = new_bvids.len();
+            let bvid_filter = video::Column::Bvid.is_in(new_bvids.clone());
+            let succeeded_count = video::Entity::find()
+                .filter(bvid_filter.clone())
+                .filter(VideoStatus::query_builder().succeeded())
+                .count(connection)
+                .await
+                .unwrap_or(0);
+            let failed_count = video::Entity::find()
+                .filter(bvid_filter.clone())
+                .filter(VideoStatus::query_builder().failed())
+                .filter(video::Column::Valid.eq(true))
+                .count(connection)
+                .await
+                .unwrap_or(0);
+            let waiting_count = total_count.saturating_sub(succeeded_count as usize).saturating_sub(failed_count as usize);
+            
+            let source_name = video_source.display_name();
+            let message = format!(
+                "🎬 {} 有更新 📹 更新了 {} 个视频 ✅ 成功: {} ❌ 失败: {} ⏳ 等待中: {}",
+                source_name,
+                total_count,
+                succeeded_count,
+                failed_count,
+                waiting_count
+            );
+            let client = bili_client.inner_client().clone();
+            let _ = notifiers.notify_all_queued(
+                &NOTIFICATION_QUEUE,
+                client,
+                message,
+            );
+        }
+    }
+    
     Ok(())
 }
 
 /// 请求接口，获取视频列表中所有新添加的视频信息，将其写入数据库
+/// 返回新视频的 bvid 列表
 pub async fn refresh_video_source<'a>(
     video_source: &VideoSourceEnum,
     video_streams: Pin<Box<dyn Stream<Item = Result<VideoInfo>> + 'a + Send>>,
     connection: &DatabaseConnection,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     video_source.log_refresh_video_start();
     let latest_row_at = video_source.get_latest_row_at().and_utc();
     let mut max_datetime = latest_row_at;
@@ -94,8 +138,20 @@ pub async fn refresh_video_source<'a>(
         .filter_map(|(idx, res)| futures::future::ready(video_source.should_filter(idx, res, &latest_row_at)))
         .chunks(10);
     let mut count = 0;
+    let mut new_bvids = Vec::new();
     while let Some(videos_info) = video_streams.next().await {
         count += videos_info.len();
+        // 保存新视频的 bvid 用于后续统计
+        new_bvids.extend(videos_info.iter().map(|v| {
+            match v {
+                VideoInfo::Detail { bvid, .. } => bvid.clone(),
+                VideoInfo::Favorite { bvid, .. } => bvid.clone(),
+                VideoInfo::WatchLater { bvid, .. } => bvid.clone(),
+                VideoInfo::Collection { bvid, .. } => bvid.clone(),
+                VideoInfo::Submission { bvid, .. } => bvid.clone(),
+                VideoInfo::Dynamic { bvid, .. } => bvid.clone(),
+            }
+        }));
         create_videos(videos_info, video_source, connection).await?;
     }
     // 如果获取视频分页过程中发生了错误，直接在此处返回，不更新 latest_row_at
@@ -107,7 +163,8 @@ pub async fn refresh_video_source<'a>(
             .await?;
     }
     video_source.log_refresh_video_end(count);
-    Ok(())
+    
+    Ok(new_bvids)
 }
 
 /// 筛选出所有未获取到全部信息的视频，尝试补充其详细信息

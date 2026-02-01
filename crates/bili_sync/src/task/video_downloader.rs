@@ -8,11 +8,11 @@ use serde::Serialize;
 use tokio::sync::{OnceCell, watch};
 use tokio_cron_scheduler::{Job, JobScheduler};
 
-use crate::adapter::VideoSource;
+use crate::adapter::{VideoSource, VideoSourceEnum};
 use crate::bilibili::{self, BiliClient, BiliError};
 use crate::config::{ARGS, Config, TEMPLATE, Trigger, VersionedConfig};
 use crate::utils::model::get_enabled_video_sources;
-use crate::utils::notify::error_and_notify;
+use crate::utils::notify::{error_and_notify, notify};
 use crate::workflow::process_video_source;
 
 static INSTANCE: OnceCell<DownloadTaskManager> = OnceCell::const_new();
@@ -44,6 +44,7 @@ struct TaskContext {
     status_tx: watch::Sender<TaskStatus>,
     status_rx: watch::Receiver<TaskStatus>,
     video_task_id: tokio::sync::Mutex<Option<uuid::Uuid>>, // 存储当前视频下载任务的 UUID
+    daily_summary_task_id: tokio::sync::Mutex<Option<uuid::Uuid>>, // 存储每日汇总任务的 UUID
 }
 
 impl DownloadTaskManager {
@@ -97,7 +98,11 @@ impl DownloadTaskManager {
     async fn new(connection: DatabaseConnection, bili_client: Arc<BiliClient>) -> Result<Self> {
         let sched = Arc::new(tokio::sync::Mutex::new(JobScheduler::new().await?));
         let (status_tx, status_rx) = watch::channel(TaskStatus::default());
-        let (running, video_task_id) = (tokio::sync::Mutex::new(()), tokio::sync::Mutex::new(None));
+        let (running, video_task_id, daily_summary_task_id) = (
+            tokio::sync::Mutex::new(()),
+            tokio::sync::Mutex::new(None),
+            tokio::sync::Mutex::new(None),
+        );
         let cx = Arc::new(TaskContext {
             connection,
             bili_client,
@@ -105,6 +110,7 @@ impl DownloadTaskManager {
             status_tx,
             status_rx,
             video_task_id,
+            daily_summary_task_id,
         });
         // 读取初始配置
         let mut rx = VersionedConfig::get().subscribe();
@@ -139,7 +145,7 @@ impl DownloadTaskManager {
                 error_and_notify(
                     &initial_config,
                     &cx.bili_client,
-                    format!("初始化视频下载任务失败：{:#}", err),
+                    format!("❌ 初始化视频下载任务失败 错误信息: {:#}", err),
                 );
                 None
             }
@@ -156,6 +162,16 @@ impl DownloadTaskManager {
                 )?)
                 .await?;
         }
+        // 初始化每日汇总任务
+        let daily_summary_task_id = crate::task::daily_summary::init_daily_summary_task(
+            cx.connection.clone(),
+            cx.bili_client.clone(),
+            sched.clone(),
+        )
+        .await
+        .context("初始化每日汇总任务失败")?;
+        *cx.daily_summary_task_id.lock().await = Some(daily_summary_task_id);
+        
         // 发起一个新任务，用来监听配置变更，动态更新视频下载任务
         let cx_clone = cx.clone();
         let sched_clone = sched.clone();
@@ -192,7 +208,7 @@ impl DownloadTaskManager {
                             error_and_notify(
                                 &initial_config,
                                 &cx.bili_client,
-                                format!("重载视频下载任务失败：{:#}", err),
+                                format!("❌ 重载视频下载任务失败 错误信息: {:#}", err),
                             );
                             None
                         }
@@ -207,6 +223,38 @@ impl DownloadTaskManager {
                                 DownloadTaskManager::refresh_next_run(video_task_id, cx.clone()),
                             )?)
                             .await?;
+                    }
+                    
+                    // 更新每日汇总任务
+                    let mut daily_summary_task_id = cx.daily_summary_task_id.lock().await;
+                    if let Some(old_daily_summary_task_id) = *daily_summary_task_id {
+                        let _ = sched_clone
+                            .lock()
+                            .await
+                            .remove(&old_daily_summary_task_id)
+                            .await;
+                    }
+                    if new_config.notify_daily_summary {
+                        match crate::task::daily_summary::init_daily_summary_task(
+                            cx.connection.clone(),
+                            cx.bili_client.clone(),
+                            sched_clone.clone(),
+                        )
+                        .await
+                        {
+                            Ok(new_daily_summary_task_id) => {
+                                *daily_summary_task_id = Some(new_daily_summary_task_id);
+                            }
+                            Err(e) => {
+                                error_and_notify(
+                                    &new_config,
+                                    &cx.bili_client,
+                                    format!("❌ 重载每日汇总任务失败 错误信息: {:#}", e),
+                                );
+                            }
+                        }
+                    } else {
+                        *daily_summary_task_id = None;
                     }
                 }
                 Result::<(), anyhow::Error>::Ok(())
@@ -233,7 +281,7 @@ impl DownloadTaskManager {
                         error_and_notify(
                             &config,
                             &cx.bili_client,
-                            format!("本轮凭据检查与刷新任务执行遇到错误：{:#}", e),
+                            format!("❌ 凭据检查与刷新任务执行失败 错误信息: {:#}", e),
                         );
                     }
                 }
@@ -284,7 +332,7 @@ impl DownloadTaskManager {
                         error_and_notify(
                             &config,
                             &cx.bili_client,
-                            format!("本轮视频下载任务执行遇到错误：{:#}", e),
+                            format!("❌ 视频下载任务执行失败 错误信息: {:#}", e),
                         );
                     }
                 }
@@ -327,6 +375,13 @@ async fn check_and_refresh_credential(
                 .await
                 .context("新 Credential 持久化失败")?;
             info!("Credential 已刷新并保存");
+            // 通知用户凭据已刷新
+            let config = VersionedConfig::get().read();
+            notify(
+                &config,
+                bili_client,
+                "✅ 凭据已刷新 Credential 已自动刷新并保存，系统将继续正常运行。".to_string(),
+            );
         }
     }
     Ok(())
@@ -351,23 +406,149 @@ async fn download_video(
         .await
         .context("获取视频源列表失败")?;
     if video_sources.is_empty() {
+        let msg = "⚠️ 没有可用的视频源 所有视频源均未启用，请检查视频源配置。";
+        notify(config, &bili_client, msg.to_string());
         bail!("没有可用的视频源");
     }
-    for video_source in video_sources {
+    
+    // 统计待扫描的视频源数量（总计）
+    let mut total_collections = 0;
+    let mut total_favorites = 0;
+    let mut total_submissions = 0;
+    let mut total_watch_later = 0;
+    for source in &video_sources {
+        match source {
+            VideoSourceEnum::Collection(_) => total_collections += 1,
+            VideoSourceEnum::Favorite(_) => total_favorites += 1,
+            VideoSourceEnum::Submission(_) => total_submissions += 1,
+            VideoSourceEnum::WatchLater(_) => total_watch_later += 1,
+        }
+    }
+    
+    // 统计扫描成功的数量
+    let mut succeeded_collections = 0;
+    let mut succeeded_favorites = 0;
+    let mut succeeded_submissions = 0;
+    let mut succeeded_watch_later = 0;
+    
+    // 记录因风控未扫描的视频源数量
+    let mut risk_control_collections = 0;
+    let mut risk_control_favorites = 0;
+    let mut risk_control_submissions = 0;
+    let mut risk_control_watch_later = 0;
+    
+    // 记录是否因风控中断
+    let mut risk_control_triggered = false;
+    let mut risk_control_source_type: Option<&str> = None;
+    
+    // 直接消费 video_sources，记录每个视频源的类型以便统计
+    let mut remaining_sources: Vec<&str> = Vec::new();
+    for video_source in &video_sources {
+        let source_type = match video_source {
+            VideoSourceEnum::Collection(_) => "collection",
+            VideoSourceEnum::Favorite(_) => "favorite",
+            VideoSourceEnum::Submission(_) => "submission",
+            VideoSourceEnum::WatchLater(_) => "watch_later",
+        };
+        remaining_sources.push(source_type);
+    }
+    
+    // 遍历并处理视频源
+    for (index, video_source) in video_sources.into_iter().enumerate() {
         let display_name = video_source.display_name();
+        let source_type = match &video_source {
+            VideoSourceEnum::Collection(_) => "collection",
+            VideoSourceEnum::Favorite(_) => "favorite",
+            VideoSourceEnum::Submission(_) => "submission",
+            VideoSourceEnum::WatchLater(_) => "watch_later",
+        };
+        
         if let Err(e) = process_video_source(video_source, &bili_client, connection, &template, config).await {
+            // 检查是否是风控相关错误（使用 downcast_ref 避免消费错误）
+            if let Some(bili_err) = e.downcast_ref::<BiliError>() 
+                && bili_err.is_risk_control_related()
+            {
+                warn!("检测到风控，终止此轮视频下载任务 处理 {} 时触发风控: {:#}", display_name, e);
+                risk_control_triggered = true;
+                risk_control_source_type = Some(source_type);
+                // 记录当前和后续未扫描的视频源
+                for remaining_type in remaining_sources.iter().skip(index) {
+                    match *remaining_type {
+                        "collection" => risk_control_collections += 1,
+                        "favorite" => risk_control_favorites += 1,
+                        "submission" => risk_control_submissions += 1,
+                        "watch_later" => risk_control_watch_later += 1,
+                        _ => {}
+                    }
+                }
+                break;
+            }
+            // 其他错误正常通知
             error_and_notify(
                 config,
                 &bili_client,
-                format!("处理 {} 时遇到错误：{:#}，跳过该视频源", display_name, e),
+                format!("❌ 处理 {} 失败 错误信息: {:#} 已跳过该视频源", display_name, e),
             );
-            if let Ok(e) = e.downcast::<BiliError>()
-                && e.is_risk_control_related()
-            {
-                warn!("检测到风控，终止此轮视频下载任务..");
-                break;
+        } else {
+            // 处理成功，根据类型增加计数
+            match source_type {
+                "collection" => succeeded_collections += 1,
+                "favorite" => succeeded_favorites += 1,
+                "submission" => succeeded_submissions += 1,
+                "watch_later" => succeeded_watch_later += 1,
+                _ => {}
             }
         }
     }
+    
+    // 输出统计信息
+    let mut stats_parts = Vec::new();
+    
+    // 合集统计
+    if total_collections > 0 {
+        if risk_control_collections > 0 {
+            stats_parts.push(format!("合集: {} / {} - 待扫描: {}", 
+                succeeded_collections, total_collections, risk_control_collections));
+        } else {
+            stats_parts.push(format!("合集: {} / {}", succeeded_collections, total_collections));
+        }
+    }
+    
+    // 收藏夹统计
+    if total_favorites > 0 {
+        if risk_control_favorites > 0 {
+            stats_parts.push(format!("收藏夹: {} / {} - 待扫描: {}", 
+                succeeded_favorites, total_favorites, risk_control_favorites));
+        } else {
+            stats_parts.push(format!("收藏夹: {} / {}", succeeded_favorites, total_favorites));
+        }
+    }
+    
+    // 投稿统计
+    if total_submissions > 0 {
+        if risk_control_submissions > 0 {
+            stats_parts.push(format!("投稿: {} / {} - 待扫描: {}", 
+                succeeded_submissions, total_submissions, risk_control_submissions));
+        } else {
+            stats_parts.push(format!("投稿: {} / {}", succeeded_submissions, total_submissions));
+        }
+    }
+    
+    // 稍后再看统计
+    if total_watch_later > 0 {
+        if risk_control_watch_later > 0 {
+            stats_parts.push(format!("稍后再看: {} / {} - 待扫描: {}", 
+                succeeded_watch_later, total_watch_later, risk_control_watch_later));
+        } else {
+            stats_parts.push(format!("稍后再看: {} / {}", succeeded_watch_later, total_watch_later));
+        }
+    }
+    
+    let stats_message = format!("视频源扫描统计 - {}", stats_parts.join(" | "));
+    info!("{}", stats_message);
+    
+    // 发送统计通知（静默时间段检查在 NotificationQueue 中统一处理）
+    notify(config, &bili_client, stats_message);
+    
     Ok(())
 }

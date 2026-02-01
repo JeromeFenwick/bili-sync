@@ -1,3 +1,4 @@
+mod daily_summary;
 mod http_server;
 mod video_downloader;
 

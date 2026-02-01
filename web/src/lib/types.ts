@@ -323,6 +323,12 @@ export interface WebhookNotifier {
 
 export type Notifier = TelegramNotifier | WebhookNotifier;
 
+export interface TestNotifierResponse {
+	success: boolean;
+	message: string;
+	details?: string | null;
+}
+
 export type Trigger = number | string;
 
 export interface Config {
@@ -345,6 +351,13 @@ export interface Config {
 	time_format: string;
 	cdn_sorting: boolean;
 	enable_cover_background: boolean;
+	notify_new_videos: boolean;
+	notify_daily_summary: boolean;
+	daily_summary_cron: string;
+	notification_interval: number;
+	enable_notification_quiet_hours: boolean;
+	quiet_hours_start: number;
+	quiet_hours_end: number;
 	version: number;
 }
 

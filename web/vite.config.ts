@@ -7,11 +7,11 @@ export default defineConfig({
 	server: {
 		proxy: {
 			'/api/ws': {
-				target: 'ws://localhost:12345',
+				target: 'ws://192.168.0.112:12345',
 				ws: true,
 				rewriteWsOrigin: true
 			},
-			'/api': 'http://localhost:12345'
+			'/api': 'http://192.168.0.112:12345'
 		},
 		host: true
 	}

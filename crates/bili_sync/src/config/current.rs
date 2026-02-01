@@ -9,8 +9,9 @@ use validator::Validate;
 
 use crate::bilibili::{Credential, DanmakuOption, FilterOption};
 use crate::config::default::{
-    default_auth_token, default_bind_address, default_collection_path, default_favorite_path, default_submission_path,
-    default_time_format,
+    default_auth_token, default_bind_address, default_collection_path, default_daily_summary_cron, default_enable_notification_quiet_hours,
+    default_favorite_path, default_notification_interval, default_notify_daily_summary, default_notify_new_videos, default_quiet_hours_end,
+    default_quiet_hours_start, default_submission_path, default_time_format,
 };
 use crate::config::item::{ConcurrentLimit, NFOTimeType, SkipOption, Trigger};
 use crate::notifier::Notifier;
@@ -46,6 +47,20 @@ pub struct Config {
     pub cdn_sorting: bool,
     #[serde(default)]
     pub enable_cover_background: bool,
+    #[serde(default = "default_notify_new_videos")]
+    pub notify_new_videos: bool,
+    #[serde(default = "default_notify_daily_summary")]
+    pub notify_daily_summary: bool,
+    #[serde(default = "default_daily_summary_cron")]
+    pub daily_summary_cron: String, // 每日汇总任务的 cron 表达式（格式：秒 分 时 日 月 周）
+    #[serde(default = "default_notification_interval")]
+    pub notification_interval: u64, // 消息队列等待时间（秒）
+    #[serde(default = "default_enable_notification_quiet_hours")]
+    pub enable_notification_quiet_hours: bool, // 是否开启通知静默时间段
+    #[serde(default = "default_quiet_hours_start")]
+    pub quiet_hours_start: u8, // 静默开始时间（小时，0-23）
+    #[serde(default = "default_quiet_hours_end")]
+    pub quiet_hours_end: u8, // 静默结束时间（小时，0-23）
     pub version: u64,
 }
 
@@ -95,10 +110,26 @@ impl Config {
                     .parse(cron)
                     .is_err()
                 {
-                    errors.push("Cron 表达式无效，正确格式为“秒 分 时 日 月 周”");
+                    errors.push("Cron 表达式无效，正确格式为：秒 分 时 日 月 周");
                 }
             }
         };
+        // 验证每日汇总任务的 cron 表达式
+        if CronParser::builder()
+            .seconds(croner::parser::Seconds::Required)
+            .dom_and_dow(true)
+            .build()
+            .parse(&self.daily_summary_cron)
+            .is_err()
+        {
+            errors.push("每日汇总任务的 Cron 表达式无效，正确格式为：秒 分 时 日 月 周");
+        }
+        // 验证静默时间段配置
+        if self.enable_notification_quiet_hours {
+            if self.quiet_hours_start > 23 || self.quiet_hours_end > 23 {
+                errors.push("静默时间段的开始和结束时间必须在 0-23 之间");
+            }
+        }
         if !errors.is_empty() {
             bail!(
                 errors
@@ -134,6 +165,13 @@ impl Default for Config {
             time_format: default_time_format(),
             cdn_sorting: false,
             enable_cover_background: false,
+            notify_new_videos: default_notify_new_videos(),
+            notify_daily_summary: default_notify_daily_summary(),
+            daily_summary_cron: default_daily_summary_cron(),
+            notification_interval: default_notification_interval(),
+            enable_notification_quiet_hours: default_enable_notification_quiet_hours(),
+            quiet_hours_start: default_quiet_hours_start(),
+            quiet_hours_end: default_quiet_hours_end(),
             version: 0,
         }
     }

@@ -372,7 +372,7 @@ pub async fn insert_favorite(
         f_id: Set(favorite_info.id),
         name: Set(favorite_info.title.clone()),
         path: Set(request.path),
-        enabled: Set(false),
+        enabled: Set(true),
         ..Default::default()
     })
     .exec(&db)
@@ -403,7 +403,7 @@ pub async fn insert_collection(
         r#type: Set(collection_info.collection_type.into()),
         name: Set(collection_info.name.clone()),
         path: Set(request.path),
-        enabled: Set(false),
+        enabled: Set(true),
         ..Default::default()
     })
     .exec(&db)
@@ -425,7 +425,7 @@ pub async fn insert_submission(
         upper_id: Set(upper.mid.parse()?),
         upper_name: Set(upper.name),
         path: Set(request.path),
-        enabled: Set(false),
+        enabled: Set(true),
         ..Default::default()
     })
     .exec(&db)

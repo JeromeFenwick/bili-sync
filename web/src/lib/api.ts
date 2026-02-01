@@ -25,6 +25,7 @@ import type {
 	ResetVideoStatusRequest,
 	UpdateVideoSourceResponse,
 	Notifier,
+	TestNotifierResponse,
 	UpdateFilteredVideoStatusRequest,
 	UpdateFilteredVideoStatusResponse,
 	ResetFilteredVideoStatusRequest,
@@ -269,8 +270,8 @@ class ApiClient {
 		return this.get<string>(`/video-sources/${type}/default-path`, { name });
 	}
 
-	async testNotifier(notifier: Notifier): Promise<ApiResponse<boolean>> {
-		return this.post<boolean>('/config/notifiers/ping', notifier);
+	async testNotifier(notifier: Notifier): Promise<ApiResponse<TestNotifierResponse>> {
+		return this.post<TestNotifierResponse>('/config/notifiers/ping', notifier);
 	}
 
 	async getConfig(): Promise<ApiResponse<Config>> {
