@@ -44,6 +44,8 @@ pub struct Config {
     pub concurrent_limit: ConcurrentLimit,
     pub time_format: String,
     pub cdn_sorting: bool,
+    #[serde(default)]
+    pub enable_cover_background: bool,
     pub version: u64,
 }
 
@@ -131,6 +133,7 @@ impl Default for Config {
             concurrent_limit: ConcurrentLimit::default(),
             time_format: default_time_format(),
             cdn_sorting: false,
+            enable_cover_background: false,
             version: 0,
         }
     }

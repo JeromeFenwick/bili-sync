@@ -41,6 +41,7 @@
 	import FilteredStatusEditor from '$lib/components/filtered-status-editor.svelte';
 	import BatchStatusEditor from '$lib/components/batch-status-editor.svelte';
 	import StatusFilter from '$lib/components/status-filter.svelte';
+	import { loadConfig } from '$lib/stores/config';
 
 	const pageSize = 20;
 
@@ -401,29 +402,29 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 		// 只在 lastSearch 已设置且发生变化时触发（避免初始化时重复加载）
 		if (lastSearch !== null && currentSearch !== lastSearch) {
 			lastSearch = currentSearch;
-			handleSearchParamsChange($page.url.searchParams);
-		}
+		handleSearchParamsChange($page.url.searchParams);
+	}
 	});
 
 	$effect(() => {
 		if (videoSources) {
-			filters = Object.fromEntries(
-				Object.values(VIDEO_SOURCES).map((source) => [
-					source.type,
-					{
-						name: source.title,
-						icon: source.icon,
-						values: Object.fromEntries(
-							(videoSources![source.type as keyof VideoSourcesResponse] as VideoSource[]).map(
-								(item) => [item.id, item.name]
-							)
+		filters = Object.fromEntries(
+			Object.values(VIDEO_SOURCES).map((source) => [
+				source.type,
+				{
+					name: source.title,
+					icon: source.icon,
+					values: Object.fromEntries(
+						(videoSources![source.type as keyof VideoSourcesResponse] as VideoSource[]).map(
+							(item) => [item.id, item.name]
 						)
-					}
-				])
-			);
-		} else {
-			filters = null;
-		}
+					)
+				}
+			])
+		);
+	} else {
+		filters = null;
+	}
 	});
 
 	onMount(async () => {
@@ -432,6 +433,8 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 				label: '视频'
 			}
 		]);
+		// 加载配置
+		await loadConfig();
 		videoSources = (await api.getVideoSources()).data;
 		// 初始化时直接加载视频
 		const currentSearch = $page.url.search;
@@ -482,15 +485,15 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 				{backButtonInfo().label}
 			</Button>
 		{/if}
-		<SearchBar
-			placeholder="搜索视频标题或 BV 号.."
+	<SearchBar
+		placeholder="搜索视频标题或 BV 号.."
 		value={$appStateStore.query}
 		onSearch={(value) => {
 			setQuery(value);
 			resetCurrentPage();
 			goto(`/${ToQuery($appStateStore)}`);
 		}}
-		></SearchBar>
+	></SearchBar>
 	</div>
 	<div class="flex items-center gap-3">
 		<!-- 状态筛选 -->
@@ -665,7 +668,7 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 		</div>
 	{/if}
 	<div
-		class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+		class="mb-8 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
 	>
 		{#each videosData.videos as video (video.id)}
 			<div class="relative">
@@ -678,17 +681,17 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 						/>
 					</div>
 				{/if}
-				<VideoCard
-					{video}
+			<VideoCard
+				{video}
 					{isSelectionMode}
 					isSelected={selectedVideoIds.has(video.id)}
 					onToggleSelection={() => toggleVideoSelection(video.id)}
-					onReset={async (forceReset: boolean) => {
-						await handleResetVideo(video.id, forceReset);
-					}}
-					onClearAndReset={async () => {
-						await handleClearAndResetVideo(video.id);
-					}}
+				onReset={async (forceReset: boolean) => {
+					await handleResetVideo(video.id, forceReset);
+				}}
+				onClearAndReset={async () => {
+					await handleClearAndResetVideo(video.id);
+				}}
 					onRetry={async (videoId: number, taskIndex: number, isPage: boolean) => {
 						try {
 							if (isPage) {
@@ -708,7 +711,7 @@ const SORT_OPTIONS: { value: VideoSortBy; label: string }[] = [
 							});
 						}
 					}}
-				/>
+			/>
 			</div>
 		{/each}
 	</div>

@@ -365,6 +365,10 @@
 							<Switch id="cdn-sorting" bind:checked={formData.cdn_sorting} />
 							<Label for="cdn-sorting">启用CDN排序</Label>
 						</div>
+						<div class="flex items-center space-x-2">
+							<Switch id="enable-cover-background" bind:checked={formData.enable_cover_background} />
+							<Label for="enable-cover-background">开启封面背景渲染</Label>
+						</div>
 					</div>
 				</Tabs.Content>
 

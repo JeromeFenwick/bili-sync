@@ -238,6 +238,7 @@ pub async fn clear_and_reset_video_status(
             should_download: video_info.should_download,
             is_paid_video: video_info.is_paid_video,
             download_status: video_info.download_status,
+            cover: video_info.cover,
         },
     }))
 }

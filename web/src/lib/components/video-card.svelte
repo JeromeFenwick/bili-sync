@@ -8,16 +8,16 @@
 	import { Label } from '$lib/components/ui/label/index.js';
 	import type { VideoInfo } from '$lib/types';
 	import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
-	import InfoIcon from '@lucide/svelte/icons/info';
 	import BrushCleaningIcon from '@lucide/svelte/icons/brush-cleaning';
 	import UserIcon from '@lucide/svelte/icons/user';
 	import SquareArrowOutUpRightIcon from '@lucide/svelte/icons/square-arrow-out-up-right';
-	import MoreHorizontalIcon from '@lucide/svelte/icons/more-horizontal';
 	import { goto } from '$app/navigation';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import api from '$lib/api';
 	import { toast } from 'svelte-sonner';
 	import type { ApiError } from '$lib/types';
+	import { configStore } from '$lib/stores/config';
+	import { onMount } from 'svelte';
 
 	// 将 bvid 设置为可选属性，但保留 VideoInfo 的其它所有属性
 	export let video: Omit<VideoInfo, 'bvid'> & { bvid?: string };
@@ -43,6 +43,8 @@
 	let retryConfirmDialogOpen = false; // 重试确认对话框状态
 	let pendingRetryTaskIndex: number | null = null; // 待确认重试的任务索引
 	let retryWarningDialogOpen = false; // 重试警告对话框状态
+	let enableCoverBackground = false; // 是否启用封面背景渲染
+	let moreMenuOpen = false; // 更多菜单打开状态
 
 	function getStatusText(status: number): string {
 		if (status === 7) {
@@ -256,12 +258,17 @@
 		goto(`/video/${video.id}`);
 	}
 
+	function handleCoverClick(e: MouseEvent) {
+		e.stopPropagation(); // 阻止事件冒泡，避免触发 handleCardClick
+		handleViewDetail();
+	}
+
 	// 根据模式确定显示的标题和副标题
 	$: displayTitle = customTitle || video.name;
 	$: displaySubtitle = customSubtitle || video.upper_name;
 	$: cardClasses =
 		mode === 'default'
-			? `group flex h-[250px] min-w-0 flex-col transition-all hover:shadow-lg hover:shadow-primary/5 border-border/50 ${
+			? `group flex min-w-0 flex-col transition-all hover:shadow-lg hover:shadow-primary/5 border-border/50 aspect-[16/9] ${
 					isSelectionMode ? (isSelected ? 'ring-2 ring-primary' : 'cursor-pointer') : ''
 				}`
 			: `transition-all hover:shadow-lg border-border/50 ${
@@ -285,49 +292,192 @@
 			onToggleSelection();
 		}
 	}
+
+	// 加载配置
+	onMount(() => {
+		const unsubscribe = configStore.subscribe((config) => {
+			enableCoverBackground = config?.enable_cover_background ?? false;
+		});
+		return unsubscribe;
+	});
+
+	// 计算卡片样式，支持封面背景
+	$: cardWrapperClasses = enableCoverBackground && video.cover
+		? 'relative overflow-hidden'
+		: '';
 </script>
 
-<Card class={cardClasses} onclick={handleCardClick}>
-	<CardHeader class="shrink-0 pb-3">
-		<div class="flex min-w-0 items-start justify-between gap-3">
-			<CardTitle
-				class="line-clamp-2 min-w-0 flex-1 cursor-default {mode === 'default'
-					? 'text-sm'
-					: 'text-sm'} leading-relaxed font-medium"
-				title={displayTitle}
-			>
-				{displayTitle}
-			</CardTitle>
-			<Badge
-				variant="secondary"
-				class="shrink-0 px-2 py-1 text-xs font-medium {overallStatus.style} "
-			>
-				{overallStatus.text}
-			</Badge>
-		</div>
-		{#if displaySubtitle}
-			<div class="text-muted-foreground mt-1.5 flex min-w-0 items-center gap-1 text-sm">
-				<UserIcon class="h-3.5 w-3.5 shrink-0" />
-				<span class="min-w-0 cursor-default truncate" title={displaySubtitle}>
-					{displaySubtitle}
-				</span>
+<Card class="{cardClasses} p-0 overflow-hidden relative" onclick={handleCardClick}>
+	{#if enableCoverBackground && video.cover}
+		<!-- 封面容器 -->
+		<div 
+			class="relative h-full w-full overflow-hidden rounded-xl cursor-pointer transition-opacity hover:opacity-90"
+			onclick={handleCoverClick}
+			role="button"
+			tabindex="0"
+			onkeydown={(e) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					handleCoverClick(e as any);
+				}
+			}}
+		>
+			<img
+				src={video.cover}
+				alt=""
+				referrerPolicy="no-referrer"
+				class="absolute inset-0 w-full h-full object-cover"
+				loading="lazy"
+			/>
+			<!-- 状态徽章 -->
+			<div class="absolute top-0 right-0 z-20 p-3">
+				{#if showActions}
+					<DropdownMenu.Root bind:open={moreMenuOpen}>
+						<DropdownMenu.Trigger>
+							{#snippet child({ props })}
+								<Badge
+									{...props}
+									variant="secondary"
+									class="shrink-0 px-2 py-1 text-xs font-medium {overallStatus.style} cursor-pointer transition-opacity hover:opacity-80"
+									onclick={(e) => {
+										e.stopPropagation(); // 阻止事件冒泡，避免触发 handleCardClick
+									}}
+								>
+									{overallStatus.text}
+								</Badge>
+							{/snippet}
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Content align="end" class="w-48">
+							<DropdownMenu.Item class="cursor-pointer" onclick={() => { resetDialogOpen = true; moreMenuOpen = false; }}>
+								<RotateCcwIcon class="mr-2 h-4 w-4" />
+								重置
+							</DropdownMenu.Item>
+							<DropdownMenu.Item
+								class="cursor-pointer"
+								onclick={() => { clearAndResetDialogOpen = true; moreMenuOpen = false; }}
+							>
+								<BrushCleaningIcon class="mr-2 h-4 w-4" />
+								清空重置
+							</DropdownMenu.Item>
+							<DropdownMenu.Item
+								class="cursor-pointer"
+								onclick={() => {
+									window.open(`https://www.bilibili.com/video/${video.bvid}/`, '_blank');
+									moreMenuOpen = false;
+								}}
+							>
+								<SquareArrowOutUpRightIcon class="mr-2 h-4 w-4" />
+								在 B 站打开
+							</DropdownMenu.Item>
+						</DropdownMenu.Content>
+					</DropdownMenu.Root>
+				{:else}
+					<Badge
+						variant="secondary"
+						class="shrink-0 px-2 py-1 text-xs font-medium {overallStatus.style}"
+					>
+						{overallStatus.text}
+					</Badge>
+				{/if}
 			</div>
-		{/if}
-	</CardHeader>
-	<CardContent
-		class={mode === 'default' ? 'flex min-w-0 flex-1 flex-col justify-end pt-0 pb-3' : 'pt-0 pb-4'}
-	>
-		<div class="space-y-3">
+			<!-- UP主名称 - 浮动在底部，带渐变背景 -->
+			{#if displaySubtitle}
+				<div class="absolute bottom-0 left-0 right-0 z-20 flex min-w-0 items-center gap-1 px-2 pb-1.5">
+					<!-- 黑色渐变效果 - 模仿B站官方风格 -->
+					<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/0"></div>
+					<!-- UP主名称内容 -->
+					<div class="relative z-10 flex min-w-0 items-center gap-1 text-sm text-white">
+						<UserIcon class="h-3.5 w-3.5 shrink-0" />
+						<span class="min-w-0 cursor-default truncate" title={displaySubtitle}>
+							{displaySubtitle}
+						</span>
+					</div>
+				</div>
+			{/if}
+		</div>
+	{:else}
+		<!-- 没有封面时显示状态徽章和UP主名称 -->
+		<div class="relative flex flex-1 flex-col z-10">
+			<CardHeader class="relative z-10 shrink-0 pb-3">
+				<div class="flex min-w-0 items-start justify-end gap-3">
+					{#if showActions}
+						<DropdownMenu.Root bind:open={moreMenuOpen}>
+							<DropdownMenu.Trigger>
+								{#snippet child({ props })}
+									<Badge
+										{...props}
+										variant="secondary"
+										class="shrink-0 px-2 py-1 text-xs font-medium {overallStatus.style} cursor-pointer transition-opacity hover:opacity-80"
+										onclick={(e) => {
+											e.stopPropagation(); // 阻止事件冒泡，避免触发 handleCardClick
+										}}
+									>
+										{overallStatus.text}
+									</Badge>
+								{/snippet}
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Content align="end" class="w-48">
+								<DropdownMenu.Item class="cursor-pointer" onclick={() => { resetDialogOpen = true; moreMenuOpen = false; }}>
+									<RotateCcwIcon class="mr-2 h-4 w-4" />
+									重置
+								</DropdownMenu.Item>
+								<DropdownMenu.Item
+									class="cursor-pointer"
+									onclick={() => { clearAndResetDialogOpen = true; moreMenuOpen = false; }}
+								>
+									<BrushCleaningIcon class="mr-2 h-4 w-4" />
+									清空重置
+								</DropdownMenu.Item>
+								<DropdownMenu.Item
+									class="cursor-pointer"
+									onclick={() => {
+										window.open(`https://www.bilibili.com/video/${video.bvid}/`, '_blank');
+										moreMenuOpen = false;
+									}}
+								>
+									<SquareArrowOutUpRightIcon class="mr-2 h-4 w-4" />
+									在 B 站打开
+								</DropdownMenu.Item>
+							</DropdownMenu.Content>
+						</DropdownMenu.Root>
+					{:else}
+						<Badge
+							variant="secondary"
+							class="shrink-0 px-2 py-1 text-xs font-medium {overallStatus.style}"
+						>
+							{overallStatus.text}
+						</Badge>
+					{/if}
+				</div>
+			</CardHeader>
+			{#if displaySubtitle}
+				<div class="absolute bottom-0 left-0 z-10 flex min-w-0 items-center gap-1 px-2 pb-1.5 text-muted-foreground text-sm">
+					<UserIcon class="h-3.5 w-3.5 shrink-0" />
+					<span class="min-w-0 cursor-default truncate" title={displaySubtitle}>
+						{displaySubtitle}
+					</span>
+				</div>
+			{/if}
+		</div>
+	{/if}
+	
+	<!-- 详情页和分页模式：标题和进度条在卡片内部 -->
+	{#if (mode === 'detail' || mode === 'page')}
+		<CardContent class="space-y-1.5">
+			<!-- 视频标题 -->
+			<div class="truncate text-sm font-medium" title={displayTitle}>
+				{displayTitle}
+			</div>
 			<!-- 进度条区域 -->
-			{#if showProgress}
-				<div class="space-y-2">
+			{#if showProgress && video.download_status && video.download_status.length > 0}
+				<div class="space-y-1">
 					<!-- 进度信息 -->
 					<div class="text-muted-foreground flex justify-between text-xs font-medium">
 						<span class="truncate">下载进度</span>
 						<span class="shrink-0">{completed}/{total}</span>
 					</div>
 					<!-- 进度条 -->
-					<div class="flex w-full gap-0.5" onclick={(e) => e.stopPropagation()}>
+					<div class="flex w-full gap-0.5">
 						{#each video.download_status as status, index (index)}
 							<Tooltip.Root>
 								<Tooltip.Trigger class="flex-1">
@@ -362,59 +512,64 @@
 					</div>
 				</div>
 			{/if}
-
-			{#if showActions && mode === 'default'}
-				<div class="flex min-w-0 gap-2 pt-1" onclick={(e) => e.stopPropagation()}>
-					<Button
-						size="sm"
-						variant="outline"
-						class="hover:bg-accent hover:text-accent-foreground h-8 min-w-0 flex-1 cursor-pointer px-3 text-xs font-medium"
-						onclick={handleViewDetail}
-					>
-						<InfoIcon class="mr-1.5 h-3 w-3 shrink-0" />
-						<span class="truncate">详情</span>
-					</Button>
-
-					<DropdownMenu.Root>
-						<DropdownMenu.Trigger>
-							{#snippet child({ props })}
-								<Button
-									{...props}
-									size="sm"
-									variant="outline"
-									class="hover:bg-accent hover:text-accent-foreground h-8 shrink-0 cursor-pointer px-2"
-								>
-									<MoreHorizontalIcon class="h-3 w-3" />
-								</Button>
-							{/snippet}
-						</DropdownMenu.Trigger>
-						<DropdownMenu.Content align="start" class="w-48">
-							<DropdownMenu.Item class="cursor-pointer" onclick={() => (resetDialogOpen = true)}>
-								<RotateCcwIcon class="mr-2 h-4 w-4" />
-								重置
-							</DropdownMenu.Item>
-							<DropdownMenu.Item
-								class="cursor-pointer"
-								onclick={() => (clearAndResetDialogOpen = true)}
-							>
-								<BrushCleaningIcon class="mr-2 h-4 w-4" />
-								清空重置
-							</DropdownMenu.Item>
-							<DropdownMenu.Item
-								class="cursor-pointer"
-								onclick={() =>
-									window.open(`https://www.bilibili.com/video/${video.bvid}/`, '_blank')}
-							>
-								<SquareArrowOutUpRightIcon class="mr-2 h-4 w-4" />
-								在 B 站打开
-							</DropdownMenu.Item>
-						</DropdownMenu.Content>
-					</DropdownMenu.Root>
-				</div>
-			{/if}
-		</div>
-	</CardContent>
+		</CardContent>
+	{/if}
 </Card>
+
+<!-- 默认模式：标题和进度条移出卡片 -->
+{#if mode === 'default'}
+	<div class="mt-2 space-y-1.5">
+		<!-- 视频标题 -->
+		<div class="truncate text-sm font-medium" title={displayTitle}>
+			{displayTitle}
+		</div>
+		<!-- 进度条区域 -->
+		{#if showProgress && video.download_status && video.download_status.length > 0}
+			<div class="space-y-1">
+				<!-- 进度信息 -->
+				<div class="text-muted-foreground flex justify-between text-xs font-medium">
+					<span class="truncate">下载进度</span>
+					<span class="shrink-0">{completed}/{total}</span>
+				</div>
+				<!-- 进度条 -->
+				<div class="flex w-full gap-0.5">
+					{#each video.download_status as status, index (index)}
+						<Tooltip.Root>
+							<Tooltip.Trigger class="flex-1">
+								<div
+									class="h-1.5 w-full rounded-full transition-all {getSegmentColor(
+										status
+									)} {retryingTaskIndex === index
+										? 'opacity-50 cursor-wait'
+										: 'cursor-pointer hover:opacity-80'}"
+									onclick={(e) => {
+										e.stopPropagation();
+										handleRetryTaskClick(index);
+									}}
+									role="button"
+									tabindex="0"
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											handleRetryTaskClick(index);
+										}
+									}}
+								></div>
+							</Tooltip.Trigger>
+							<Tooltip.Content>
+								<p class="text-xs">
+									{getTaskName(index)}: {getStatusText(status)}
+									{retryingTaskIndex === index ? ' (重试中...)' : ' (点击重试)'}
+								</p>
+							</Tooltip.Content>
+						</Tooltip.Root>
+					{/each}
+				</div>
+			</div>
+		{/if}
+
+	</div>
+{/if}
 
 <!-- 重置确认对话框 -->
 <AlertDialog.Root bind:open={resetDialogOpen}>

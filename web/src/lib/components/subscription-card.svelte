@@ -15,6 +15,7 @@ import api from '$lib/api';
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
 import { onMount } from 'svelte';
+import { configStore } from '$lib/stores/config';
 
 export let item: Followed;
 export let onSubscriptionSuccess: (() => void) | null = null;
@@ -22,6 +23,8 @@ export let onSubscriptionSuccess: (() => void) | null = null;
 let dialogOpen = false;
 let videoSources: VideoSourcesResponse | null = null;
 let cachedCount: number | null = null;
+let enableCoverBackground = false;
+let cover: string | null = null;
 
 	function getIcon() {
 		switch (item.type) {
@@ -184,25 +187,81 @@ let cachedCount: number | null = null;
 		return { paramKey, id: source.id };
 	}
 
+	// 加载封面
+	async function loadCover() {
+		if (!enableCoverBackground || (item.type !== 'favorite' && item.type !== 'collection')) {
+			return;
+		}
+		
+		try {
+			const resolved = await resolveVideoSource();
+			if (!resolved) return;
+			const { paramKey, id } = resolved;
+			const params: Record<string, string | number> = {
+				page: 0,
+				page_size: 1
+			};
+			params[paramKey] = id;
+			const res = await api.getVideos(params);
+			
+			// 获取第一个视频的封面
+			if (res.data.videos.length > 0) {
+				cover = res.data.videos[0].cover;
+			}
+		} catch {
+			// 静默失败
+		}
+	}
+
 	onMount(async () => {
-		// 收藏夹 / 合集 / UP 投稿：尝试预取“已缓存数量”
+		// 订阅配置
+		const unsubscribe = configStore.subscribe((config) => {
+			const newValue = config?.enable_cover_background ?? false;
+			if (newValue !== enableCoverBackground) {
+				enableCoverBackground = newValue;
+				if (enableCoverBackground) {
+					loadCover();
+				} else {
+					cover = null;
+				}
+			}
+		});
+
+		// 收藏夹 / 合集 / UP 投稿：尝试预取"已缓存数量"和封面
 		if (item.type === 'favorite' || item.type === 'collection' || item.type === 'upper') {
 			try {
 				const resolved = await resolveVideoSource();
 				if (!resolved) return;
 				const { paramKey, id } = resolved;
-				const params: Record<string, string | number> = {
+				
+				// 获取已缓存数量（使用 status_filter: 'succeeded'）
+				const countParams: Record<string, string | number> = {
 					page: 0,
 					page_size: 1,
 					status_filter: 'succeeded'
 				};
-				params[paramKey] = id;
-				const res = await api.getVideos(params);
-				cachedCount = res.data.total_count;
+				countParams[paramKey] = id;
+				const countRes = await api.getVideos(countParams);
+				cachedCount = countRes.data.total_count;
+				
+				// 如果启用封面背景渲染，获取第一个视频的封面（不使用状态过滤）
+				if (enableCoverBackground) {
+					const coverParams: Record<string, string | number> = {
+						page: 0,
+						page_size: 1
+					};
+					coverParams[paramKey] = id;
+					const coverRes = await api.getVideos(coverParams);
+					if (coverRes.data.videos.length > 0) {
+						cover = coverRes.data.videos[0].cover;
+					}
+				}
 			} catch {
 				cachedCount = null;
 			}
 		}
+
+		return unsubscribe;
 	});
 
 	async function handleDrilldown() {
@@ -238,10 +297,21 @@ let cachedCount: number | null = null;
 </script>
 
 <Card
-	class="hover:shadow-primary/5 border-border/50 group flex h-[200px] flex-col transition-all hover:shadow-lg {disabled
+	class="hover:shadow-primary/5 border-border/50 group relative flex h-[200px] flex-col transition-all hover:shadow-lg overflow-hidden {disabled
 		? 'opacity-60'
 		: ''}"
 >
+	{#if enableCoverBackground && cover && (item.type === 'favorite' || item.type === 'collection')}
+		<img
+			src={cover}
+			alt=""
+			referrerPolicy="no-referrer"
+			class="absolute inset-0 w-full h-full object-cover z-0"
+			loading="lazy"
+		/>
+		<div class="absolute inset-0 bg-background/80 backdrop-blur-sm z-0"></div>
+	{/if}
+	<div class="relative z-10 flex h-full flex-col">
 	<CardHeader class="flex-shrink-0">
 		<div class="flex items-start gap-3">
 			<!-- 头像或图标 - 简化设计 -->
@@ -357,6 +427,7 @@ let cachedCount: number | null = null;
 			{/if}
 		</div>
 	</CardContent>
+	</div>
 </Card>
 
 <!-- 订阅对话框 -->

@@ -39,6 +39,7 @@ export interface VideoInfo {
 	should_download: boolean;
 	is_paid_video: boolean;
 	download_status: [number, number, number, number, number];
+	cover: string;
 }
 
 export interface VideosResponse {
@@ -343,6 +344,7 @@ export interface Config {
 	concurrent_limit: ConcurrentLimit;
 	time_format: string;
 	cdn_sorting: boolean;
+	enable_cover_background: boolean;
 	version: number;
 }
 

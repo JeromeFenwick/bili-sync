@@ -77,6 +77,7 @@ pub struct VideoInfo {
     pub is_paid_video: bool,
     #[serde(serialize_with = "serde_video_download_status")]
     pub download_status: u32,
+    pub cover: String,
 }
 
 #[derive(Serialize, DerivePartialModel, FromQueryResult)]
