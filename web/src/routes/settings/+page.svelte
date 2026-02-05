@@ -129,6 +129,11 @@
 			if (formData.daily_summary_cron === undefined) {
 				formData.daily_summary_cron = '0 0 9 * * *';
 			}
+
+			// 订阅时是否自动启用视频源（后端新增字段，老配置需要兜底）
+			if (formData.enable_video_source_on_subscribe === undefined) {
+				formData.enable_video_source_on_subscribe = true;
+			}
 			
 			// 解析每日汇总时间的 cron 表达式
 			// cron 格式：秒 分 时 日 月 周，例如 "0 0 9 * * *" 表示每天9点0分0秒
@@ -533,6 +538,15 @@
 						<div class="flex items-center space-x-2">
 							<Switch id="enable-cover-background" bind:checked={formData.enable_cover_background} />
 							<Label for="enable-cover-background">开启封面背景渲染</Label>
+						</div>
+						<div class="flex items-center space-x-2">
+							<Switch
+								id="enable-video-source-on-subscribe"
+								bind:checked={formData.enable_video_source_on_subscribe}
+							/>
+							<Label for="enable-video-source-on-subscribe">
+								订阅收藏夹 / 合集 / UP 投稿时自动启用对应视频源
+							</Label>
 						</div>
 					</div>
 				</Tabs.Content>
@@ -981,86 +995,44 @@
 								{#if formData.notify_daily_summary}
 									<div class="space-y-2">
 										<Label for="daily-summary-time">发送时间</Label>
-										<div class="flex items-center gap-1">
-											<Input
+										<div class="flex items-center gap-2">
+											<select
 												id="daily-summary-hour"
-												type="text"
-												inputmode="numeric"
-												pattern="[0-9]*"
+												class="border-input bg-background ring-offset-background h-10 rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
 												bind:value={dailySummaryHourInput}
-												oninput={(e) => {
-													// 只允许数字，最多2位
-													let value = e.currentTarget.value.replace(/\D/g, '');
-													if (value.length > 2) {
-														value = value.slice(0, 2);
-													}
+												on:change={(e) => {
+													const value = e.currentTarget.value;
 													dailySummaryHourInput = value;
-													
-													// 更新数值和 cron 表达式
-													if (value === '') {
-														dailySummaryHour = 0;
-													} else {
-														const num = parseInt(value, 10);
-														dailySummaryHour = Math.max(0, Math.min(23, num));
-													}
+													const num = parseInt(value, 10);
+													dailySummaryHour = Math.max(0, Math.min(23, isNaN(num) ? 0 : num));
 													formData.daily_summary_cron = `0 ${dailySummaryMinute} ${dailySummaryHour} * * *`;
 												}}
-												onblur={(e) => {
-													// 失去焦点时格式化为两位数字
-													if (dailySummaryHourInput === '') {
-														dailySummaryHourInput = '00';
-														dailySummaryHour = 0;
-													} else {
-														const num = parseInt(dailySummaryHourInput, 10);
-														dailySummaryHour = Math.max(0, Math.min(23, num));
-														dailySummaryHourInput = String(dailySummaryHour).padStart(2, '0');
-													}
-													formData.daily_summary_cron = `0 ${dailySummaryMinute} ${dailySummaryHour} * * *`;
-												}}
-												class="w-16 text-center"
-												placeholder="09"
-												maxlength="2"
-											/>
+											>
+												{#each Array.from({ length: 24 }, (_, i) => i) as h}
+													<option value={String(h).padStart(2, '0')}>
+														{String(h).padStart(2, '0')}
+													</option>
+												{/each}
+											</select>
 											<span class="text-lg font-medium">:</span>
-											<Input
+											<select
 												id="daily-summary-minute"
-												type="text"
-												inputmode="numeric"
-												pattern="[0-9]*"
+												class="border-input bg-background ring-offset-background h-10 rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
 												bind:value={dailySummaryMinuteInput}
-												oninput={(e) => {
-													// 只允许数字，最多2位
-													let value = e.currentTarget.value.replace(/\D/g, '');
-													if (value.length > 2) {
-														value = value.slice(0, 2);
-													}
+												on:change={(e) => {
+													const value = e.currentTarget.value;
 													dailySummaryMinuteInput = value;
-													
-													// 更新数值和 cron 表达式
-													if (value === '') {
-														dailySummaryMinute = 0;
-													} else {
-														const num = parseInt(value, 10);
-														dailySummaryMinute = Math.max(0, Math.min(59, num));
-													}
+													const num = parseInt(value, 10);
+													dailySummaryMinute = Math.max(0, Math.min(59, isNaN(num) ? 0 : num));
 													formData.daily_summary_cron = `0 ${dailySummaryMinute} ${dailySummaryHour} * * *`;
 												}}
-												onblur={(e) => {
-													// 失去焦点时格式化为两位数字
-													if (dailySummaryMinuteInput === '') {
-														dailySummaryMinuteInput = '00';
-														dailySummaryMinute = 0;
-													} else {
-														const num = parseInt(dailySummaryMinuteInput, 10);
-														dailySummaryMinute = Math.max(0, Math.min(59, num));
-														dailySummaryMinuteInput = String(dailySummaryMinute).padStart(2, '0');
-													}
-													formData.daily_summary_cron = `0 ${dailySummaryMinute} ${dailySummaryHour} * * *`;
-												}}
-												class="w-16 text-center"
-												placeholder="00"
-												maxlength="2"
-											/>
+											>
+												{#each Array.from({ length: 60 }, (_, i) => i) as m}
+													<option value={String(m).padStart(2, '0')}>
+														{String(m).padStart(2, '0')}
+													</option>
+												{/each}
+											</select>
 										</div>
 										<p class="text-muted-foreground text-sm">
 											设置每日汇总消息的发送时间（24小时制，格式：HH:MM）
@@ -1096,84 +1068,54 @@
 										/>
 									</div>
 									{#if formData.enable_notification_quiet_hours}
-										<div class="space-y-4 rounded-lg border p-4 bg-muted/50">
-											<div class="space-y-2">
+										<div class="rounded-lg border p-4 bg-muted/50">
+											<div class="flex flex-wrap items-start gap-8">
+												<div class="space-y-2">
 												<Label for="quiet-hours-start">静默开始时间（小时）</Label>
-												<Input
+												<select
 													id="quiet-hours-start"
-													type="text"
-													inputmode="numeric"
-													pattern="[0-9]*"
+													class="border-input bg-background ring-offset-background h-10 rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
 													bind:value={quietHoursStartInput}
-													oninput={(e) => {
-														let value = e.currentTarget.value.replace(/\D/g, '');
-														if (value.length > 2) {
-															value = value.slice(0, 2);
-														}
+													on:change={(e) => {
+														const value = e.currentTarget.value;
 														quietHoursStartInput = value;
-														if (value === '') {
-															formData.quiet_hours_start = 0;
-														} else {
-															const num = parseInt(value, 10);
-															formData.quiet_hours_start = Math.max(0, Math.min(23, num));
-														}
+														const num = parseInt(value, 10);
+														formData.quiet_hours_start = Math.max(0, Math.min(23, isNaN(num) ? 0 : num));
 													}}
-													onblur={(e) => {
-														if (quietHoursStartInput === '') {
-															quietHoursStartInput = '00';
-															formData.quiet_hours_start = 0;
-														} else {
-															const num = parseInt(quietHoursStartInput, 10);
-															formData.quiet_hours_start = Math.max(0, Math.min(23, num));
-															quietHoursStartInput = String(formData.quiet_hours_start).padStart(2, '0');
-														}
-													}}
-													class="w-20 text-center"
-													placeholder="22"
-													maxlength="2"
-												/>
+												>
+													{#each Array.from({ length: 24 }, (_, i) => i) as h}
+														<option value={String(h).padStart(2, '0')}>
+															{String(h).padStart(2, '0')}
+														</option>
+													{/each}
+												</select>
 												<p class="text-muted-foreground text-sm">
 													静默开始时间（0-23，例如 22 表示晚上10点）
 												</p>
-											</div>
-											<div class="space-y-2">
+												</div>
+												<div class="space-y-2">
 												<Label for="quiet-hours-end">静默结束时间（小时）</Label>
-												<Input
+												<select
 													id="quiet-hours-end"
-													type="text"
-													inputmode="numeric"
-													pattern="[0-9]*"
+													class="border-input bg-background ring-offset-background h-10 rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
 													bind:value={quietHoursEndInput}
-													oninput={(e) => {
-														let value = e.currentTarget.value.replace(/\D/g, '');
-														if (value.length > 2) {
-															value = value.slice(0, 2);
-														}
+													on:change={(e) => {
+														const value = e.currentTarget.value;
 														quietHoursEndInput = value;
-														if (value === '') {
-															formData.quiet_hours_end = 0;
-														} else {
-															const num = parseInt(value, 10);
-															formData.quiet_hours_end = Math.max(0, Math.min(23, num));
-														}
+														const num = parseInt(value, 10);
+														formData.quiet_hours_end = Math.max(0, Math.min(23, isNaN(num) ? 0 : num));
 													}}
-													onblur={(e) => {
-														if (quietHoursEndInput === '') {
-															quietHoursEndInput = '00';
-															formData.quiet_hours_end = 0;
-														} else {
-															const num = parseInt(quietHoursEndInput, 10);
-															formData.quiet_hours_end = Math.max(0, Math.min(23, num));
-															quietHoursEndInput = String(formData.quiet_hours_end).padStart(2, '0');
-														}
-													}}
-													class="w-20 text-center"
-													placeholder="09"
-													maxlength="2"
-												/>
+												>
+													{#each Array.from({ length: 24 }, (_, i) => i) as h}
+														<option value={String(h).padStart(2, '0')}>
+															{String(h).padStart(2, '0')}
+														</option>
+													{/each}
+												</select>
 												<p class="text-muted-foreground text-sm">
 													静默结束时间（0-23，例如 09 表示早上9点）。如果结束时间小于开始时间，表示跨天（如 22:00-09:00）
 												</p>
+												</div>
 											</div>
 										</div>
 									{/if}
@@ -1241,7 +1183,8 @@
 							</div>
 						{/if}
 					</div>
-				</Tabs.Content>
+				</div>
+			</Tabs.Content>
 
 				<!-- 高级设置 -->
 				<Tabs.Content value="advanced" class="mt-6 space-y-6">

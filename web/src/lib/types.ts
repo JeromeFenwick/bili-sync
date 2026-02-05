@@ -22,6 +22,14 @@ export interface VideosRequest {
 export interface VideoSource {
 	id: number;
 	name: string;
+	/**
+	 * 远端唯一标识：
+	 * - 收藏夹：favorite.f_id
+	 * - 合集：collection.s_id
+	 * - 投稿：submission.upper_id
+	 * - 稍后再看：始终为 null / undefined
+	 */
+	remoteId?: number | null;
 }
 
 export interface VideoSourcesResponse {
@@ -351,6 +359,8 @@ export interface Config {
 	time_format: string;
 	cdn_sorting: boolean;
 	enable_cover_background: boolean;
+	// 订阅收藏夹 / 合集 / UP 投稿时，是否自动将对应视频源标记为启用
+	enable_video_source_on_subscribe: boolean;
 	notify_new_videos: boolean;
 	notify_daily_summary: boolean;
 	daily_summary_cron: string;

@@ -133,11 +133,9 @@ impl NotificationQueue {
         let mut success_count = 0;
         let mut fail_count = 0;
         
-        // 在消息末尾添加生成时间和推送时间
-        let now = chrono::Local::now();
-        let created_time = msg.created_at.format("%Y-%m-%d %H:%M:%S").to_string();
-        let sent_time = now.format("%Y-%m-%d %H:%M:%S").to_string();
-        let final_message = format!("{} ⌛️ 生成时间: {} ⌛️ 推送时间: {}", msg.message, created_time, sent_time);
+        // 获取发送时间
+        let sent_at = chrono::Local::now();
+        let created_at = msg.created_at;
         
         for (index, notifier) in msg.notifiers.iter().enumerate() {
             let notifier_type = match notifier {
@@ -145,7 +143,10 @@ impl NotificationQueue {
                 Notifier::Webhook { .. } => "Webhook",
             };
             
-            match notifier.notify(&msg.client, &final_message).await {
+            // 统一使用原始消息和时间参数，让每个通知器自己决定如何显示时间
+            let result = notifier.notify_with_time(&msg.client, &msg.message, Some(created_at), Some(sent_at)).await;
+            
+            match result {
                 Ok(_) => {
                     success_count += 1;
                     info!("通知器 #{} ({}) 发送成功", index + 1, notifier_type);

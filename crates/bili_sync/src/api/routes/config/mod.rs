@@ -52,8 +52,11 @@ pub async fn ping_notifiers(
         *ignore_cache = Some(());
     }
     
-    // 尝试发送通知并捕获详细错误
-    match notifier.notify(bili_client.inner_client(), test_message).await {
+    // 尝试发送通知并捕获详细错误（测试消息不参与“重复消息去重”）
+    match notifier
+        .notify_without_cache(bili_client.inner_client(), test_message)
+        .await
+    {
         Ok(_) => {
             Ok(ApiResponse::ok(TestNotifierResponse {
                 success: true,

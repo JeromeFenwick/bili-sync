@@ -61,9 +61,18 @@ pub struct UpdateFilteredVideoStatusResponse {
 }
 
 #[derive(FromQueryResult, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VideoSource {
+    /// 本地视频源主键 ID（favorite.id / collection.id / submission.id / watch_later.id）
     pub id: i32,
+    /// 展示名称（收藏夹名称 / 合集名称 / UP 主名 / 稍后再看）
     pub name: String,
+    /// 远端唯一标识：
+    /// - 收藏夹：favorite.f_id
+    /// - 合集：collection.s_id
+    /// - 投稿：submission.upper_id
+    /// - 稍后再看：始终为 null
+    pub remote_id: Option<i64>,
 }
 
 #[derive(Serialize, DerivePartialModel, FromQueryResult)]

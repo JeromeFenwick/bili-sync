@@ -125,20 +125,23 @@ async fn generate_daily_summary(connection: &DatabaseConnection) -> Result<Strin
         .count(connection)
         .await?;
     
-    // 生成汇总消息
-    let summary = format!(
-        "📊 BiliSync 每日汇总 | 📹 视频总数: {} | ✅ 成功: {} | ❌ 失败: {} | ⏳ 等待: {} | 🔄 失效: {} | 💰 收费: {} | 📚 视频源: 收藏夹 {} 合集 {} UP投稿 {} 总计 {}",
-        total_videos,
-        succeeded_videos,
-        failed_videos,
-        waiting_videos,
-        skipped_videos,
-        paid_videos,
-        favorite_count,
-        collection_count,
-        submission_count,
-        video_sources.len()
-    );
+    let summary = [
+        "📊 BiliSync 每日汇总 ⭐️⭐️⭐️".to_string(),
+        format!("  |  📹 视频总数: {} 个", total_videos),
+        format!("  |  ✅  成 功 : {} 个", succeeded_videos),
+        format!("  |  ❌  失 败 : {} 个", failed_videos),
+        format!("  |  ⏳  等 待 : {} 个", waiting_videos),
+        format!("  |  🔄  失 效 : {} 个", skipped_videos),
+        format!("  |  💰  收 费 : {} 个", paid_videos),
+        "".to_string(),
+        "📚 视频源统计 ⭐️⭐️⭐️".to_string(),
+        format!("  |  收藏夹: {} 个", favorite_count),
+        format!("  |  合 集 : {} 个", collection_count),
+        format!("  |  UP投稿: {} 个", submission_count),
+        format!("  |  总  计: {} 个", video_sources.len()),
+    ].join("\n");
+    
+            
     
     Ok(summary)
 }

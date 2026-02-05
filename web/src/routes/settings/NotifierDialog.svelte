@@ -122,12 +122,15 @@
 			<textarea
 				id="webhook-template"
 				class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[120px] w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-				placeholder={'{"text": "{{{message}}}"}'}
+				placeholder={'{"text": "{{{message}}}", "created_at": "{{created_at}}", "sent_at": "{{sent_at}}"}'}
 				bind:value={webhookTemplate}
 			></textarea>
 			<p class="text-muted-foreground text-xs">
 				用于渲染 Webhook 的 Handlebars 模板。如果不填写，将使用默认模板。<br />
-				可用变量：<code class="text-xs">message</code>（通知内容）
+				可用变量：<br />
+				• <code class="text-xs">message</code> - 通知内容（使用三个大括号 <code class="text-xs">&#123;&#123;&#123;message&#125;&#125;&#125;</code> 避免 HTML 转义）<br />
+				• <code class="text-xs">created_at</code> - 消息创建时间（格式：YYYY-MM-DD HH:MM:SS）<br />
+				• <code class="text-xs">sent_at</code> - 消息发送时间（格式：YYYY-MM-DD HH:MM:SS）
 			</p>
 		</div>
 	{/if}

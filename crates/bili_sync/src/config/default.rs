@@ -56,3 +56,8 @@ pub(super) fn default_quiet_hours_start() -> u8 {
 pub(super) fn default_quiet_hours_end() -> u8 {
     9 // 默认早上9点
 }
+
+/// 默认：订阅收藏夹/合集/UP 投稿时，自动将对应视频源标记为启用
+pub(super) fn default_enable_video_source_on_subscribe() -> bool {
+    true
+}

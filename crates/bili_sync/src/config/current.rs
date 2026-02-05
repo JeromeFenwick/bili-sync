@@ -10,8 +10,8 @@ use validator::Validate;
 use crate::bilibili::{Credential, DanmakuOption, FilterOption};
 use crate::config::default::{
     default_auth_token, default_bind_address, default_collection_path, default_daily_summary_cron, default_enable_notification_quiet_hours,
-    default_favorite_path, default_notification_interval, default_notify_daily_summary, default_notify_new_videos, default_quiet_hours_end,
-    default_quiet_hours_start, default_submission_path, default_time_format,
+    default_enable_video_source_on_subscribe, default_favorite_path, default_notification_interval, default_notify_daily_summary,
+    default_notify_new_videos, default_quiet_hours_end, default_quiet_hours_start, default_submission_path, default_time_format,
 };
 use crate::config::item::{ConcurrentLimit, NFOTimeType, SkipOption, Trigger};
 use crate::notifier::Notifier;
@@ -47,6 +47,9 @@ pub struct Config {
     pub cdn_sorting: bool,
     #[serde(default)]
     pub enable_cover_background: bool,
+    /// 订阅收藏夹 / 合集 / UP 投稿时，是否自动将对应视频源标记为启用
+    #[serde(default = "default_enable_video_source_on_subscribe")]
+    pub enable_video_source_on_subscribe: bool,
     #[serde(default = "default_notify_new_videos")]
     pub notify_new_videos: bool,
     #[serde(default = "default_notify_daily_summary")]
@@ -165,6 +168,7 @@ impl Default for Config {
             time_format: default_time_format(),
             cdn_sorting: false,
             enable_cover_background: false,
+            enable_video_source_on_subscribe: default_enable_video_source_on_subscribe(),
             notify_new_videos: default_notify_new_videos(),
             notify_daily_summary: default_notify_daily_summary(),
             daily_summary_cron: default_daily_summary_cron(),

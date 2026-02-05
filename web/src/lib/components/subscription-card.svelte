@@ -156,30 +156,64 @@ let cover: string | null = null;
 		let paramKey: 'favorite' | 'collection' | 'submission';
 		let matchName: string;
 
+		// 优先使用远端 ID（fid / sid / upper_id）进行精确匹配，避免同名合并的问题，
+		// 名称匹配仅作为兜底兼容旧数据。
+		let targetRemoteId: number | null = null;
+
 		if (item.type === 'favorite') {
 			list = videoSources.favorite;
 			paramKey = 'favorite';
 			matchName = getTitle();
+			targetRemoteId = item.fid;
 		} else if (item.type === 'collection') {
 			list = videoSources.collection;
 			paramKey = 'collection';
 			matchName = getTitle();
+			targetRemoteId = item.sid;
 		} else if (item.type === 'upper') {
 			list = videoSources.submission;
 			paramKey = 'submission';
 			matchName = item.uname;
+			targetRemoteId = item.mid;
 		} else {
 			return null;
 		}
 
+		let source: VideoSource | undefined;
+
+		// 1. 优先用远端 ID 精确匹配（推荐且不受重名影响）
+		if (targetRemoteId !== null) {
+			source = list.find((s) => s.remoteId === targetRemoteId);
+			if (!source) {
+				// 调试：如果远端 ID 匹配不到，输出调试信息
+				console.debug(
+					`[resolveVideoSource] 远端 ID 匹配失败: type=${item.type}, targetRemoteId=${targetRemoteId}, availableSources=`,
+					list.map((s) => ({ id: s.id, name: s.name, remoteId: s.remoteId }))
+				);
+			}
+		}
+
+		// 2. 如果远端 ID 匹配不到，再退回到旧的"按名称匹配"的逻辑，保证兼容性
+		if (!source) {
 		// 先尝试精确匹配名称，若失败，对于合集再尝试模糊匹配，
-		// 兼容“我追的合集 / 收藏夹”和“视频源”中名称存在细微差异的情况。
-		let source = list.find((s) => s.name === matchName);
+			// 兼容"我追的合集 / 收藏夹"和"视频源"中名称存在细微差异的情况。
+			source = list.find((s) => s.name === matchName);
 		if (!source && item.type === 'collection') {
 			source = list.find(
 				(s) => s.name.includes(matchName) || matchName.includes(s.name)
 			);
 		}
+			if (source) {
+				console.debug(
+					`[resolveVideoSource] 使用名称匹配: type=${item.type}, matchName=${matchName}, matchedId=${source.id}`
+				);
+			}
+		} else {
+			console.debug(
+				`[resolveVideoSource] 使用远端 ID 匹配成功: type=${item.type}, targetRemoteId=${targetRemoteId}, matchedId=${source.id}`
+			);
+		}
+
 		if (!source) {
 			return null;
 		}

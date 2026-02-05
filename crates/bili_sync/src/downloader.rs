@@ -40,11 +40,30 @@ impl Downloader {
                     e
                 })?;
         }
-        fs::copy(temp_file.file_path(), path).await
-            .map_err(|e| {
+        // 先尝试复制，如果失败且是因为文件已存在，则删除后重试
+        match fs::copy(temp_file.file_path(), path).await {
+            Ok(_) => {
+                // 复制成功
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && path.exists() => {
+                // 权限错误且文件已存在，删除后重试
+                tracing::warn!("复制文件失败（权限错误），尝试删除已存在的文件后重试 {}: {}", path.display(), e);
+                fs::remove_file(path).await
+                    .map_err(|remove_err| {
+                        tracing::error!("删除已存在的文件失败 {}: {}", path.display(), remove_err);
+                        remove_err
+                    })?;
+                fs::copy(temp_file.file_path(), path).await
+                    .map_err(|e| {
+                        tracing::error!("删除后重新复制文件失败 {}: {}", path.display(), e);
+                        e
+                    })?;
+            }
+            Err(e) => {
                 tracing::error!("复制文件失败 {}: {}", path.display(), e);
-                e
-            })?;
+                return Err(e.into());
+            }
+        }
         // temp_file 的 drop 需要 std::fs::remove_file
         // 如果交由 rust 自动执行虽然逻辑正确但会略微阻塞异步上下文
         // 尽量主动调用，保证正常执行的情况下文件清除操作由 spawn_blocking 在专门线程中完成
@@ -62,7 +81,16 @@ impl Downloader {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
-        fs::copy(temp_file.file_path(), path).await?;
+        // 先尝试复制，如果失败且是因为文件已存在，则删除后重试
+        if let Err(e) = fs::copy(temp_file.file_path(), path).await {
+            if e.kind() == std::io::ErrorKind::PermissionDenied && path.exists() {
+                // 权限错误且文件已存在，删除后重试
+                fs::remove_file(path).await?;
+                fs::copy(temp_file.file_path(), path).await?;
+            } else {
+                return Err(e.into());
+            }
+        }
         temp_file.drop_async().await;
         Ok(())
     }
@@ -103,7 +131,16 @@ impl Downloader {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
         }
-        fs::copy(final_temp_file.file_path(), path).await?;
+        // 先尝试复制，如果失败且是因为文件已存在，则删除后重试
+        if let Err(e) = fs::copy(final_temp_file.file_path(), path).await {
+            if e.kind() == std::io::ErrorKind::PermissionDenied && path.exists() {
+                // 权限错误且文件已存在，删除后重试
+                fs::remove_file(path).await?;
+                fs::copy(final_temp_file.file_path(), path).await?;
+            } else {
+                return Err(e.into());
+            }
+        }
         tokio::join!(
             video_temp_file.drop_async(),
             audio_temp_file.drop_async(),

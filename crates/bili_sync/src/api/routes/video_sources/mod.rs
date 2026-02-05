@@ -48,26 +48,36 @@ pub async fn get_video_sources(
     Extension(db): Extension<DatabaseConnection>,
 ) -> Result<ApiResponse<VideoSourcesResponse>, ApiError> {
     let (collection, favorite, submission, mut watch_later) = tokio::try_join!(
+        // 合集：使用 collection.id / collection.name / collection.s_id
         collection::Entity::find()
             .select_only()
-            .columns([collection::Column::Id, collection::Column::Name])
+            .column(collection::Column::Id)
+            .column(collection::Column::Name)
+            .column_as(collection::Column::SId, "remote_id")
             .into_model::<VideoSource>()
             .all(&db),
+        // 收藏夹：使用 favorite.id / favorite.name / favorite.f_id
         favorite::Entity::find()
             .select_only()
-            .columns([favorite::Column::Id, favorite::Column::Name])
+            .column(favorite::Column::Id)
+            .column(favorite::Column::Name)
+            .column_as(favorite::Column::FId, "remote_id")
             .into_model::<VideoSource>()
             .all(&db),
+        // 投稿：使用 submission.id / submission.upper_name 作为 name / submission.upper_id 作为 remote_id
         submission::Entity::find()
             .select_only()
             .column(submission::Column::Id)
             .column_as(submission::Column::UpperName, "name")
+            .column_as(submission::Column::UpperId, "remote_id")
             .into_model::<VideoSource>()
             .all(&db),
+        // 稍后再看：没有远端 ID，remote_id 始终为 NULL
         watch_later::Entity::find()
             .select_only()
             .column(watch_later::Column::Id)
             .column_as(Expr::value("稍后再看"), "name")
+            .column_as(Expr::value(Option::<i64>::None), "remote_id")
             .into_model::<VideoSource>()
             .all(&db)
     )?;
@@ -76,6 +86,7 @@ pub async fn get_video_sources(
         watch_later.push(VideoSource {
             id: 1,
             name: "稍后再看".to_string(),
+            remote_id: None, // 稍后再看没有远端 ID
         });
     }
     Ok(ApiResponse::ok(VideoSourcesResponse {
@@ -365,14 +376,16 @@ pub async fn insert_favorite(
     Extension(bili_client): Extension<Arc<BiliClient>>,
     ValidatedJson(request): ValidatedJson<InsertFavoriteRequest>,
 ) -> Result<ApiResponse<bool>, ApiError> {
-    let credential = &VersionedConfig::get().read().credential;
+    let config = VersionedConfig::get().read();
+    let credential = &config.credential;
+    let auto_enable = config.enable_video_source_on_subscribe;
     let favorite = FavoriteList::new(bili_client.as_ref(), request.fid.to_string(), credential);
     let favorite_info = favorite.get_info().await?;
     favorite::Entity::insert(favorite::ActiveModel {
         f_id: Set(favorite_info.id),
         name: Set(favorite_info.title.clone()),
         path: Set(request.path),
-        enabled: Set(true),
+        enabled: Set(auto_enable),
         ..Default::default()
     })
     .exec(&db)
@@ -386,7 +399,9 @@ pub async fn insert_collection(
     Extension(bili_client): Extension<Arc<BiliClient>>,
     ValidatedJson(request): ValidatedJson<InsertCollectionRequest>,
 ) -> Result<ApiResponse<bool>, ApiError> {
-    let credential = &VersionedConfig::get().read().credential;
+    let config = VersionedConfig::get().read();
+    let credential = &config.credential;
+    let auto_enable = config.enable_video_source_on_subscribe;
     let collection = Collection::new(
         bili_client.as_ref(),
         CollectionItem {
@@ -403,7 +418,7 @@ pub async fn insert_collection(
         r#type: Set(collection_info.collection_type.into()),
         name: Set(collection_info.name.clone()),
         path: Set(request.path),
-        enabled: Set(true),
+        enabled: Set(auto_enable),
         ..Default::default()
     })
     .exec(&db)
@@ -418,14 +433,16 @@ pub async fn insert_submission(
     Extension(bili_client): Extension<Arc<BiliClient>>,
     ValidatedJson(request): ValidatedJson<InsertSubmissionRequest>,
 ) -> Result<ApiResponse<bool>, ApiError> {
-    let credential = &VersionedConfig::get().read().credential;
+    let config = VersionedConfig::get().read();
+    let credential = &config.credential;
+    let auto_enable = config.enable_video_source_on_subscribe;
     let submission = Submission::new(bili_client.as_ref(), request.upper_id.to_string(), credential);
     let upper = submission.get_info().await?;
     submission::Entity::insert(submission::ActiveModel {
         upper_id: Set(upper.mid.parse()?),
         upper_name: Set(upper.name),
         path: Set(request.path),
-        enabled: Set(true),
+        enabled: Set(auto_enable),
         ..Default::default()
     })
     .exec(&db)

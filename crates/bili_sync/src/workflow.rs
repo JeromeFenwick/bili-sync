@@ -77,14 +77,23 @@ pub async fn process_video_source(
             let waiting_count = total_count.saturating_sub(succeeded_count as usize).saturating_sub(failed_count as usize);
             
             let source_name = video_source.display_name();
-            let message = format!(
-                "🎬 {} 有更新 📹 更新了 {} 个视频 ✅ 成功: {} ❌ 失败: {} ⏳ 等待中: {}",
-                source_name,
-                total_count,
-                succeeded_count,
-                failed_count,
-                waiting_count
-            );
+            let mut message_parts = vec![
+                format!("🎬 {} 有更新", source_name),
+                format!("📹 本次更新视频数：{}", total_count),
+                "".to_string()
+            ];
+            
+            if succeeded_count > 0 {
+                message_parts.push(format!("  |  ✅ 成功: {} 个", succeeded_count));
+            }
+            if failed_count > 0 {
+                message_parts.push(format!("  |  ❌ 失败: {} 个", failed_count));
+            }
+            if waiting_count > 0 {
+                message_parts.push(format!("  |  ⏳ 等待中: {} 个", waiting_count));
+            }
+            
+            let message = message_parts.join("\n");
             let client = bili_client.inner_client().clone();
             let _ = notifiers.notify_all_queued(
                 &NOTIFICATION_QUEUE,
